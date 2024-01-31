@@ -12,7 +12,6 @@ import PortraitDropper from "../PortraitDropper";
 import { Autocomplete, TextField } from "@mui/material";
 import { setAlert } from "../../stores/alertSlice";
 import { pushToSeriesList, setSeriesList } from "../../stores/seriesSlice";
-import { setIsLoaderVisible } from "../../stores/uiSlice";
 import { AlertToast, AlertToastType } from "../../utils/Toaster";
 import styles from "./createNewStory.module.css";
 
@@ -198,7 +197,7 @@ const CreateNewStoryModal = () => {
         }
       }
     }
-    dispatch(setIsLoaderVisible(true));
+
     try {
       const response = await fetch("/api/stories", {
         credentials: "include",
@@ -243,7 +242,6 @@ const CreateNewStoryModal = () => {
       storyFormMessage.message = "Please try again later or contact support at the link below:";
       dispatch(setAlert(storyFormMessage));
     }
-    dispatch(setIsLoaderVisible(false));
   };
 
   return (
@@ -265,10 +263,10 @@ const CreateNewStoryModal = () => {
               <input
                 type="text"
                 id="create-story-title"
-                onKeyUp={(event: React.KeyboardEvent<HTMLInputElement>) => {
+                onChange={(event) => {
                   setStoryForm((prevFormInput) => ({
                     ...prevFormInput,
-                    title: (event.target as HTMLInputElement).value,
+                    title: event.target.value,
                   }));
                 }}
               />

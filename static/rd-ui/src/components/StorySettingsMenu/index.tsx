@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useSelections } from "../../hooks/useSelections";
 
 
-export const SettingsMenu = () => {
+export const StorySettingsMenu = () => {
     const navigate = useNavigate();
     const { story, deselectAll } = useSelections();
     const [isEditorMenuOpen, setIsEditorMenuOpen] = useState(false);
@@ -25,13 +25,6 @@ export const SettingsMenu = () => {
             <Paper
                 className={styles.sideMenu}
                 elevation={3}
-                sx={{
-                    width: 32,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    py: 2,
-                }}
             >
                 <Tooltip title="Close this Document" placement="right">
                     <IconButton onClick={closeDoc}>

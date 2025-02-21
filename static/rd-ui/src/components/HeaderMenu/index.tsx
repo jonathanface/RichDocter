@@ -104,15 +104,20 @@ export const HeaderMenu = () => {
   return (
     <header className={styles.header}>
       <span className={styles.leftPane}>
-        <img className={styles.logoImage}
-          alt="RichDocter logo"
-          title="RichDocter - Organized Imagination"
-          src="/img/logo_trans_scaled.png"
-        />
+        <a href="https://docter.io">
+          <img className={styles.logoImage}
+            alt="RichDocter logo"
+            title="RichDocter - Organized Imagination"
+            src="/img/logo_trans_scaled.png"
+          />
+        </a>
         <span className={styles.storyInfo}>
-          <EditableText textValue={story?.title ? story.title : ""} onTextChange={onStoryTitleEdit} />
-          <div className={styles.seriesInfo}>
-            <EditableText textValue={series?.series_title ? series.series_title : ""} onTextChange={onSeriesTitleEdit} />
+          <img alt={story?.title} src={story?.image_url} />
+          <div className={styles.storyData}>
+            <EditableText textValue={story?.title ? story.title : ""} onTextChange={onStoryTitleEdit} />
+            <div className={styles.seriesInfo}>
+              <EditableText textValue={series?.series_title ? series.series_title : ""} onTextChange={onSeriesTitleEdit} />
+            </div>
           </div>
         </span>
       </span>

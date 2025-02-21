@@ -8,18 +8,23 @@ interface SeriesSelectionOptions {
     label: string;
     id: string;
     count: number;
+    selected: boolean;
+}
+interface SelectedSeries {
+    series_id?: string;
+    series_title: string;
 }
 
 interface SeriesSelectionProps {
     onSeriesChange: (value: string, seriesId?: string) => void;
     theme: Theme;
+    preselected?: SelectedSeries;
 }
 
 export const SeriesStep = (props: SeriesSelectionProps) => {
 
     const { seriesList } = useWorksList();
     const [seriesOptions, setSeriesOptions] = useState<SeriesSelectionOptions[]>([])
-    const [seriesTitle] = useState("");
 
     useEffect(() => {
         if (seriesList) {
@@ -27,11 +32,12 @@ export const SeriesStep = (props: SeriesSelectionProps) => {
                 return {
                     label: entry.series_title,
                     id: entry.series_id,
-                    count: index
+                    count: index,
+                    selected: props.preselected?.series_id === entry.series_id
                 }
             }))
         }
-    }, [seriesList]);
+    }, [seriesList, props.preselected?.series_id]);
 
     const handleSeriesChange = (text: string, foundSeries?: Series) => {
         if (foundSeries) {
@@ -40,6 +46,8 @@ export const SeriesStep = (props: SeriesSelectionProps) => {
             props.onSeriesChange(text);
         }
     }
+
+    const defaultOption = seriesOptions.find((option) => option.selected) || null;
 
     return (
         <ThemeProvider theme={props.theme}>
@@ -50,7 +58,7 @@ export const SeriesStep = (props: SeriesSelectionProps) => {
                         maxWidth: '500px'
                     }}
 
-                    value={seriesTitle}
+                    value={defaultOption}
                     onInputChange={(_event: React.SyntheticEvent, value: string) => {
                         // Find a matching series if it exists.
                         const foundSeries = seriesList?.find(

@@ -1,4 +1,4 @@
-import { Box, Button, createTheme, IconButton, Step, StepLabel, Stepper, ThemeProvider, Typography } from "@mui/material";
+import { Box, Button, createTheme, IconButton, MobileStepper, Step, StepLabel, Stepper, ThemeProvider, Typography, useMediaQuery } from "@mui/material";
 import { useCallback, useEffect, useRef, useState } from "react";
 import styles from './createeditstoryslideshow.module.css'
 import { TitleStep } from "./TitleStep";
@@ -12,14 +12,15 @@ import { useSelections } from "../../hooks/useSelections";
 import { Story } from "../../types/Story";
 import { Series } from "../../types/Series";
 import { useToaster } from "../../hooks/useToaster";
-import { AlertCommandType, AlertToastType } from "../../types/AlertToasts";
+import { AlertToastType } from "../../types/AlertToasts";
 import { useNavigate, useParams } from "react-router-dom";
 import CloseIcon from '@mui/icons-material/Close';
 import { useFetchUserData } from "../../hooks/useFetchUserData";
+import { KeyboardArrowLeft, KeyboardArrowRight } from "@mui/icons-material";
 
 const steps = ['Title', 'Image', 'Description', 'Series'];
 
-interface CreateStoryForm {
+export interface CreateStoryForm {
     [key: string]: string | undefined | File | number;
     story_id?: string;
     title?: string;
@@ -58,6 +59,7 @@ export const CreateEditStorySlideshow = () => {
     const { setAlertState } = useToaster();
     const navigate = useNavigate();
     const { storyID } = useParams<{ storyID: string }>();
+    const { seriesID } = useParams<{ seriesID: string }>();
     const storedSeriesID = useRef("")
     const { userDetails } = useFetchUserData();
 
@@ -68,38 +70,10 @@ export const CreateEditStorySlideshow = () => {
         })
     };
 
-    const showInsufficientSubscriptionWarning = useCallback(() => {
-        setAlertState({
-            title: "Insufficient subscription",
-            severity: AlertToastType.warning,
-            message: "Non-subscribers are limited to just one story. You may click the link below if you want to subscribe.",
-            open: true,
-            callback: {
-                type: AlertCommandType.subscribe,
-                text: "subscribe",
-            }
-        });
-    }, [setAlertState]);
-
     const handleClose = useCallback(() => {
         handleReset();
         navigate('/stories');
     }, [navigate]);
-
-    useEffect(() => {
-        if (!seriesList && !storiesList) return;
-        if (!userDetails) return;
-        if (!userDetails.subscription_id.length || userDetails.expired) {
-            const seriesWithEntries = seriesList?.some(series => series.stories.length);
-            if (seriesWithEntries || storiesList?.length) {
-                showInsufficientSubscriptionWarning();
-                handleClose();
-                return;
-            }
-        }
-    }, [seriesList, storiesList, userDetails, showInsufficientSubscriptionWarning, handleClose])
-
-
 
     useEffect(() => {
         if (!storyID || !storyID.length) return;
@@ -110,7 +84,6 @@ export const CreateEditStorySlideshow = () => {
                 if (!response.ok) throw new Error('Story not found');
                 const data = await response.json() as Story;
 
-                console.log("setting story from index", data);
                 const editingStoryBuild: CreateStoryForm = {
                     story_id: data.story_id,
                     title: data.title,
@@ -126,7 +99,7 @@ export const CreateEditStorySlideshow = () => {
                     storedSeriesID.current = data.series_id;
                     const seriesResponse = await fetch(`/api/series/${data.series_id}`);
                     if (!seriesResponse.ok) throw new Error('Series not found');
-                    const seriesData = await response.json() as Series;
+                    const seriesData = await seriesResponse.json() as Series;
                     editingStoryBuild.series_title = seriesData.series_title;
                     setTempSeries({
                         series_id: seriesData.series_id,
@@ -149,6 +122,42 @@ export const CreateEditStorySlideshow = () => {
         };
         fetchStory();
     }, [storyID, showLoader, hideLoader, setAlertState]);
+
+    useEffect(() => {
+        if (!seriesID || !seriesID.length) return;
+        const fetchSeries = async () => {
+            try {
+                showLoader();
+                const response = await fetch(`/api/series/${seriesID}`);
+                if (!response.ok) throw new Error('Series not found');
+                const data = await response.json() as Series;
+                storedSeriesID.current = data.series_id;
+                storyBuild.series_title = data.series_title;
+                const updateStoryBuild = {
+                    ...storyBuild,
+                    seriesID: data.series_id,
+                }
+                setTempSeries({
+                    series_id: data.series_id,
+                    series_title: data.series_title
+                });
+                setStoryBuild(updateStoryBuild);
+            } catch (err) {
+                console.error(err);
+                setAlertState({
+                    title: "Error retrieving data",
+                    message:
+                        "We are experiencing difficulty retrieving some or all of your data",
+                    severity: AlertToastType.error,
+                    open: true
+                });
+            } finally {
+                hideLoader();
+            }
+        };
+        fetchSeries();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [seriesID, showLoader, hideLoader, setAlertState]);
 
     const isStepOptional = (step: number) => {
         return step === 3;
@@ -297,6 +306,7 @@ export const CreateEditStorySlideshow = () => {
                     const foundSeriesIndex = seriesList?.findIndex((srs) => srs.series_id === newStory.series_id);
                     if (foundSeriesIndex !== undefined && foundSeriesIndex !== -1) {
                         const updatedSeries = { ...seriesList[foundSeriesIndex] };
+                        updatedSeries.stories.push(newStory);
                         propagateSeriesUpdates(updatedSeries, newStory);
                     } else {
                         setSeriesList([...seriesList, newSeries]);
@@ -315,20 +325,20 @@ export const CreateEditStorySlideshow = () => {
                 severity: AlertToastType.success,
                 open: true
             });
+            if (seriesID?.length) {
+                navigate(`/series/${seriesID}/edit`);
+                return;
+            }
             navigate(`/stories/${newStory.story_id}`);
         } catch (error: unknown) {
             const fetchError = error as Response;
             console.error(fetchError.statusText);
-            if (fetchError.status === 401) {
-                showInsufficientSubscriptionWarning();
-            } else {
-                setAlertState({
-                    title: "Error creating story",
-                    severity: AlertToastType.error,
-                    message: "Please try again later or contact support.",
-                    open: true,
-                });
-            }
+            setAlertState({
+                title: "Error creating or editing story",
+                severity: AlertToastType.error,
+                message: "Please try again later or contact support.",
+                open: true,
+            });
         } finally {
             hideLoader();
         }
@@ -462,8 +472,6 @@ export const CreateEditStorySlideshow = () => {
         });
     };
 
-
-
     const stepIconTheme = createTheme({
         components: {
             // Name of the component
@@ -507,7 +515,56 @@ export const CreateEditStorySlideshow = () => {
         }
     });
 
-    return userDetails && userDetails.subscription_id.length && !userDetails.expired ? (
+    const isMobile = useMediaQuery(textfieldTheme.breakpoints.down('sm'));
+    const DynamicStepper = isMobile ?
+        <MobileStepper
+            variant="text"
+            steps={steps.length}
+            position="static"
+            activeStep={activeStep}
+            nextButton={
+                <Button
+                    size="small"
+                    onClick={handleNext}
+                    disabled={activeStep === steps.length - 1}
+                >
+                    Next
+                    {stepIconTheme.direction === 'rtl' ? (
+                        <KeyboardArrowLeft />
+                    ) : (
+                        <KeyboardArrowRight />
+                    )}
+                </Button>
+            }
+            backButton={
+                <Button size="small" onClick={handleBack} disabled={activeStep === 0}>
+                    {stepIconTheme.direction === 'rtl' ? (
+                        <KeyboardArrowRight />
+                    ) : (
+                        <KeyboardArrowLeft />
+                    )}
+                    Back
+                </Button>
+            }
+        /> :
+        <Stepper activeStep={activeStep}>
+            {steps.map((label, index) => {
+                const stepProps: { completed?: boolean } = {};
+                const labelProps: {
+                    optional?: React.ReactNode;
+                } = {};
+                if (isStepSkipped(index)) {
+                    stepProps.completed = false;
+                }
+                return (
+                    <Step key={label} {...stepProps}>
+                        <StepLabel {...labelProps}>{label}</StepLabel>
+                    </Step>
+                );
+            })}
+        </Stepper>;
+
+    return (
         <Box className={styles.slideshowParent} >
             <Box className={styles.header}>
                 <IconButton onClick={handleClose} sx={{ mr: 1 }}>
@@ -515,25 +572,11 @@ export const CreateEditStorySlideshow = () => {
                 </IconButton>
             </Box>
             <ThemeProvider theme={stepIconTheme}>
-                <Stepper activeStep={activeStep}>
-                    {steps.map((label, index) => {
-                        const stepProps: { completed?: boolean } = {};
-                        const labelProps: {
-                            optional?: React.ReactNode;
-                        } = {};
-                        if (isStepSkipped(index)) {
-                            stepProps.completed = false;
-                        }
-                        return (
-                            <Step key={label} {...stepProps}>
-                                <StepLabel {...labelProps}>{label}</StepLabel>
-                            </Step>
-                        );
-                    })}
-                </Stepper>
+                {DynamicStepper}
                 <>
-                    <Box sx={{ display: 'flex' }}>
+                    <Box className={styles.mainContent}>
                         <Box className={styles.finalProduct}>
+                            <Typography variant="subtitle2" className={`${styles.finalTitle} ${styles.headerTitle} ${storyBuild.title && storyBuild.title.trim().length > 0 ? styles.hasText : ''}`}>Your Story So Far</Typography>
                             <Typography variant="subtitle1" className={`${styles.finalTitle} ${storyBuild.title && storyBuild.title.trim().length > 0 ? styles.hasText : ''}`}>{`${storyBuild.title}`}</Typography>
                             <img className={`${styles.finalImage} ${storyBuild.image || storyBuild.image_url ? styles.hasText : ''}`} src={tempImageURL} />
                             <Typography variant="body2" className={`${styles.finalDescription} ${storyBuild.description && storyBuild.description.trim().length > 0 ? styles.hasText : ''}`}>{storyBuild.description}</Typography>
@@ -547,11 +590,11 @@ export const CreateEditStorySlideshow = () => {
                                         ? <ImageStep title={storyBuild.title || ""} onComplete={processImage} initialImageURL={tempImageURL?.length ? tempImageURL : undefined} />
                                         : activeStep === 2
                                             ? <DescriptionStep theme={textfieldTheme} text={tempDescription} onChange={(e) => setTempDescription(e.target.value)} />
-                                            : activeStep === 3 ? <SeriesStep theme={textfieldTheme} onSeriesChange={handleSeriesChange} />
+                                            : activeStep === 3 ? <SeriesStep theme={textfieldTheme} preselected={tempSeries} onSeriesChange={handleSeriesChange} />
                                                 : activeStep === 4 ?
-                                                    <VerificationStep isEditing={storyID ? true : false} onBack={handleBack} onReset={handleReset} /> : ""
+                                                    <VerificationStep isMobile={isMobile} isEditing={storyID ? true : false} tempImageURL={tempImageURL} storyBuild={storyBuild} onBack={handleBack} onReset={handleReset} /> : ""
                             }
-                            <Box sx={{ color: '#8e0000' }}>{warning}</Box>
+                            <Box className={styles.errorMsg}>{warning}</Box>
                         </Box>
                     </Box>
                     <Box sx={{ display: 'flex', flexDirection: 'row', pt: 2 }}>
@@ -579,7 +622,5 @@ export const CreateEditStorySlideshow = () => {
                 </>
             </ThemeProvider>
         </Box >
-    ) : (
-        <div />
     );
 }

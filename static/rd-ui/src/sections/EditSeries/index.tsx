@@ -1,9 +1,8 @@
-import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import RemoveIcon from "@mui/icons-material/Remove";
 import { Box, IconButton, Typography } from "@mui/material";
 import Button from "@mui/material/Button";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { DragDropContext, Draggable, DropResult, Droppable } from "@hello-pangea/dnd";
 import styles from "./editseries.module.css";
 import { useWorksList } from "../../hooks/useWorksList";
@@ -16,6 +15,7 @@ import { useSelections } from "../../hooks/useSelections";
 import { useNavigate, useParams } from "react-router-dom";
 import { PortraitDropper } from "../../components/PortraitDropper";
 import CloseIcon from '@mui/icons-material/Close';
+import { AddStoryModal } from "../../components/AddStoryModal";
 
 interface EditSeriesForm {
     [key: string]: string | undefined | File | number | Story[];
@@ -36,6 +36,7 @@ export const EditSeries = () => {
     const { setAlertState } = useToaster();
     const navigate = useNavigate();
     const { seriesID } = useParams<{ seriesID: string }>();
+    const availableStories = useRef<Story[]>([]);
 
     const [seriesBuild, setSeriesBuild] = useState<EditSeriesForm>({
         series_title: "",
@@ -44,6 +45,15 @@ export const EditSeries = () => {
         image: undefined,
         stories: []
     });
+
+    useEffect(() => {
+        if (storiesList) {
+            availableStories.current = storiesList.filter(
+                (story) =>
+                    !seriesBuild.stories || !seriesBuild.stories.some((s) => s.story_id === story.story_id)
+            );
+        }
+    }, [seriesBuild.stories, storiesList]);
 
     useEffect(() => {
         if (!seriesID || !seriesID.length) return;
@@ -174,9 +184,15 @@ export const EditSeries = () => {
                 error.message = response.statusText;
                 throw error;
             }
-
-
             const json: Series = await response.json();
+            if (storiesList) {
+                json.stories.forEach(story => {
+                    const standaloneVersionIDX = storiesList?.findIndex((volume) => volume.story_id === story.story_id);
+                    if (standaloneVersionIDX !== -1) {
+                        setStoriesList(storiesList.filter((_, idx) => idx !== standaloneVersionIDX));
+                    }
+                })
+            }
             propagateSeriesUpdates(json);
             handleClose();
         } catch (error: unknown) {
@@ -257,10 +273,11 @@ export const EditSeries = () => {
         }
     };
 
-    const addStory = (event: React.MouseEvent) => {
-        event.stopPropagation();
-        resetForm();
-        navigate('/stories/new');
+    const handleSelectStory = (story: Story) => {
+        setSeriesBuild((prev) => ({
+            ...prev,
+            stories: prev.stories ? [...prev.stories, story] : [story],
+        }));
     };
 
     return (
@@ -287,7 +304,6 @@ export const EditSeries = () => {
                         <label htmlFor="edit-series-title">Title:</label>
                         <input
                             defaultValue={seriesBuild.series_title}
-                            key={seriesBuild.series_title}
                             type="text"
                             id="edit-series-title"
                             onKeyUp={(event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -302,7 +318,6 @@ export const EditSeries = () => {
                         <label htmlFor="edit-series-description">Description:</label>
                         <textarea
                             defaultValue={seriesBuild.series_description}
-                            key={seriesBuild.series_description}
                             spellCheck="false"
                             id="edit-series-description"
                             onChange={(event) => {
@@ -319,15 +334,11 @@ export const EditSeries = () => {
                 <hr />
                 <Typography variant="h6">
                     Volumes
-                    <IconButton
-                        className={styles.addStory}
-                        aria-label="add story"
-                        sx={{ padding: 0 }}
-                        onClick={addStory}
-                        title="Add"
-                    >
-                        <AddIcon sx={{ fontSize: 24, color: "#000", marginLeft: 1 }} />
-                    </IconButton>
+                    <AddStoryModal
+                        seriesID={seriesID}
+                        availableStories={availableStories.current}
+                        onSelectStory={handleSelectStory}
+                    />
                 </Typography>
                 <DragDropContext onDragEnd={onDragEnd}>
                     <Droppable droppableId="droppable">

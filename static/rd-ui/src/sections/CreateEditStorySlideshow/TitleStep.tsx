@@ -9,7 +9,6 @@ interface TitleStepProps {
 }
 
 const randomBookTitle = () => {
-    console.log("gening")
     const vowels = ["A", "E", "I", "O", "U"];
     const articles = ["The", "A", "An"];
     const adjectives = [
@@ -65,7 +64,7 @@ export const TitleStep = (props: TitleStepProps) => {
         <ThemeProvider theme={props.theme}>
             <Box className={styles.formContainer}>
                 <Typography sx={{ mb: 2 }}>Let's start with a title. Make it a good one.</Typography>
-                <TextField sx={{ minWidth: '200px', width: '50%' }} placeholder={defaultText} value={props.title || ""} onChange={props.onChange} />
+                <TextField className={styles.titleField} placeholder={defaultText} value={props.title || ""} onChange={props.onChange} />
             </Box>
         </ThemeProvider>
     )

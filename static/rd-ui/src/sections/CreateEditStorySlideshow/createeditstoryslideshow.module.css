@@ -7,11 +7,15 @@
     border-radius: 15px;
     padding: 3rem;
     padding-top: 1rem;
-    background-color: #ddd;
+    background-color: #f9f9f9;
 }
 
 .slideshowParent .formContainer {
     padding: 2rem;
+}
+
+.slideshowParent .mainContent {
+    display: flex;
 }
 
 .slideshowParent .formContainer .portraitWrapper {
@@ -28,9 +32,17 @@
     text-align: left;
     font-size: 0.8rem;
     color: #00000082;
-    padding-top: 2rem;
+    padding-top: 3rem;
 }
 
+.slideshowParent .finalProductMobile {
+    flex: 0 0 auto;
+    text-align: left;
+    font-size: 0.8rem;
+    color: #00000082;
+}
+
+.slideshowParent .headerTitle,
 .slideshowParent .finalTitle,
 .slideshowParent .finalImage,
 .slideshowParent .finalDescription,
@@ -54,6 +66,13 @@
     box-shadow: 2px 2px 2px #8e8e8e;
 }
 
+.slideshowParent .errorMsg {
+    color: #8e0000;
+    padding: 1rem;
+    padding-bottom: 0px;
+    padding-top: 0px;
+}
+
 .slideshowParent .header {
     display: flex;
     align-items: center;
@@ -64,6 +83,10 @@
 
 .slideshowParent .finalTitle {
     width: 100%;
+}
+
+.slideshowParent .headerTitle {
+    font-weight: bold;
 }
 
 .slideshowParent .finalImage {
@@ -85,11 +108,61 @@
     font-size: 0.7rem;
 }
 
-.slideshowParent .finalProduct .hasText {
+.slideshowParent .finalProduct .hasText,
+.slideshowParent .finalProductMobile .hasText {
     opacity: 1;
+}
+
+.slideshowParent .finalProductMobile .finalImage,
+.slideshowParent .finalProductMobile .finalDescription {
+    max-width: 100%;
+    width: 100%;
 }
 
 .slideshowParent .editWindow {
     flex: 1;
     text-align: left;
+}
+
+.slideshowParent .descriptionField {
+    width: 300px;
+    padding: 0;
+}
+
+@media only screen and (max-width: 600px) {
+    .slideshowParent {
+        margin: 1rem;
+        padding: 0;
+        width: 90%;
+    }
+
+    .slideshowParent .mainContent {
+        flex-direction: column;
+    }
+
+    .slideshowParent .finalProduct {
+        display: none;
+    }
+
+    .slideshowParent .formContainer {
+        padding: 1rem;
+    }
+
+    .slideshowParent .formContainer .titleField {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .slideshowParent .formContainer .portraitWrapper {
+        max-width: none;
+    }
+
+    .slideshowParent .descriptionField {
+        width: 100%;
+    }
+
+    .slideshowParent .header {
+        margin-left: 0;
+        margin-top: 0;
+    }
 }

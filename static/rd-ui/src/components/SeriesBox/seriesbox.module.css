@@ -10,11 +10,13 @@
     margin-bottom: 20px;
     min-width: 300px;
     min-height: 300px;
+
 }
 
 .seriesBoxContainer .seriesBubble {
     position: relative;
     overflow: hidden;
+    cursor: pointer;
 }
 
 .seriesBoxContainer img {
@@ -48,6 +50,9 @@
 .seriesBoxContainer .seriesLabel .title {
     margin-right: 15px;
     font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .seriesBoxContainer .seriesLabel .buttons {

@@ -36,7 +36,6 @@ export default class Exporter {
       namespace: "ExportEditor",
       nodes: [CustomParagraphNode, ClickableDecoratorNode], // Register custom nodes
     });
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const storyData: any = await this.getFullStory(this.story.story_id);
     const chapters: returnHTML[] = [];
@@ -104,17 +103,13 @@ export default class Exporter {
     }
 
     return chapters;
-  };
+  }
 
   getFullStory = async (storyID: string) => {
-    try {
-      const response = await fetch("/api/stories/" + storyID + "/full");
-      if (!response.ok) {
-        throw new Error(`SERVER ERROR FETCHING FULL STORY: ${response.body}`);
-      }
-      return await response.json();
-    } catch (e) {
-      console.error(`ERROR FETCHING FULL STORY: ${e}`);
+    const response = await fetch("/api/stories/" + storyID + "/full");
+    if (!response.ok) {
+      throw new Error(`SERVER ERROR FETCHING FULL STORY: ${response.body}`);
     }
+    return await response.json();
   };
 }

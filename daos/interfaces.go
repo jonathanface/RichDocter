@@ -14,6 +14,7 @@ type DaoInterface interface {
 	GetAllSeriesWithStories(email string, adminRequest bool) ([]models.Series, error)
 	GetChaptersByStoryID(storyID string) ([]models.Chapter, error)
 	GetStoryByID(email string, storyID string) (*models.Story, error)
+	GetStorySettingsByID(email string, storyID string) (*models.StorySettings, error)
 	GetSeriesByID(email string, seriesID string) (*models.Series, error)
 	GetStoryCountByUser(email string) (int, error)
 	GetChapterParagraphs(storyID string, chapterID string, key *map[string]types.AttributeValue) (*models.BlocksData, error)
@@ -22,6 +23,7 @@ type DaoInterface interface {
 	GetSeriesVolumes(email string, seriesID string) ([]*models.Story, error)
 	GetUserDetails(email string) (*models.UserInfo, error)
 	GetChapterByID(chapterID string) (*models.Chapter, error)
+	GetOutlineByStoryID(storyID string) (*[]models.OutlineSection, error)
 
 	// PUTs
 	UpsertUser(email string) error
@@ -34,14 +36,17 @@ type DaoInterface interface {
 	AddCustomerID(email, customerID *string) error
 	AddStripeData(email, subscriptionID, customerID *string) error
 	EditStory(email string, story models.Story) (models.Story, error)
+	UpdateStorySettings(email, storyID string, settings models.StorySettings) error
 	EditSeries(email string, series models.Series) (models.Series, error)
 	EditChapter(storyID string, chapter models.Chapter) (models.Chapter, error)
 	RemoveStoryFromSeries(email, storyID string, series models.Series) (models.Series, error)
+	UpdateOutline(outline models.OutlineRequest) error
 
 	// POSTs
 	CreateChapter(storyID string, chapter models.Chapter, email string) (models.Chapter, error)
 	CreateStory(email string, story models.Story, newSeriesTitle string) (storyID string, err error)
 	CreateUser(email string) error
+	CreateOutline(outline models.OutlineRequest) (*models.OutlineRequest, error)
 
 	// DELETEs
 	DeleteChapterParagraphs(storyID string, storyBlocks *models.StoryBlocks) error
@@ -58,5 +63,5 @@ type DaoInterface interface {
 	GetTotalCreatedStories(email string) (int, error)
 	CheckForSuspendedStories(email string) (bool, error)
 	CheckTableStatus(tableName string) (string, error)
-	awsWriteTransaction(writeItemsInput *dynamodb.TransactWriteItemsInput) (err error, awsError models.AwsError)
+	awsWriteTransaction(writeItemsInput *dynamodb.TransactWriteItemsInput) (awsError models.AwsError, err error)
 }

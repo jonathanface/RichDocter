@@ -8,6 +8,8 @@ import { Chapter } from "../../types/Chapter";
 import { useSelections } from "../../hooks/useSelections";
 import { useToaster } from "../../hooks/useToaster";
 import { AlertState, AlertToastType } from "../../types/AlertToasts";
+import { AssociationsProvider } from "../../providers/associations";
+import { DocumentSettingsProvider } from "../../providers/documentSettings";
 
 export const DocumentEditorPage = () => {
     const { showLoader, hideLoader } = useLoader();
@@ -102,7 +104,13 @@ export const DocumentEditorPage = () => {
         }
         setChapterID(chapterID);
     }, [chapterID, searchParams, story]);
+
+    if (!storyID) return;
     return (
-        <ThreadWriter />
+        <AssociationsProvider storyID={storyID}>
+            <DocumentSettingsProvider storyID={storyID}>
+                <ThreadWriter />
+            </DocumentSettingsProvider>
+        </AssociationsProvider>
     );
 };

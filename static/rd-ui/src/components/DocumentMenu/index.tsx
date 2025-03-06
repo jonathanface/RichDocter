@@ -1,5 +1,5 @@
 import { Box, Drawer, IconButton, Paper, Tooltip } from "@mui/material"
-import { ChapterItems } from "../ChapterItems";
+import { FlyoutMenuItems } from "../FlyoutMenuItems";
 import { Settings } from "@mui/icons-material";
 import styles from "./settingsmenu.module.css";
 import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered';
@@ -7,12 +7,18 @@ import CancelPresentationIcon from '@mui/icons-material/CancelPresentation';
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useSelections } from "../../hooks/useSelections";
+import { ClickData } from "../ThreadWriter/plugins/DocumentClickPlugin";
+import { DocumentSettingsModal } from "../DocumentSettingsModal";
 
-
-export const StorySettingsMenu = () => {
+interface DocumentMenuProps {
+    onAssociationClick: (data: ClickData) => void;
+}
+export const DocumentMenu = (props: DocumentMenuProps) => {
     const navigate = useNavigate();
     const { story, deselectAll } = useSelections();
     const [isEditorMenuOpen, setIsEditorMenuOpen] = useState(false);
+    const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+
     if (!story) return;
 
     const closeDoc = () => {
@@ -37,18 +43,18 @@ export const StorySettingsMenu = () => {
                     </IconButton>
                 </Tooltip>
                 <Tooltip title="Settings" placement="right">
-                    <IconButton disabled={true}>
+                    <IconButton onClick={() => { setIsSettingsMenuOpen(true) }}>
                         <Settings />
                     </IconButton>
                 </Tooltip>
             </Paper>
-
+            <DocumentSettingsModal open={isSettingsMenuOpen} setOpen={setIsSettingsMenuOpen} />
             <Drawer anchor={"right"} open={isEditorMenuOpen} onClose={() => { setIsEditorMenuOpen(false) }}>
                 <Box
-                    sx={{ width: 250 }}
+                    className={styles.flyoutMenu}
                     role="presentation"
                     component="section">
-                    <ChapterItems chapters={story.chapters} />
+                    <FlyoutMenuItems chapters={story.chapters} onAssociationClick={props.onAssociationClick} />
                 </Box>
             </Drawer>
         </div>

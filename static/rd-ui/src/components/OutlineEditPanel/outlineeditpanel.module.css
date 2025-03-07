@@ -14,7 +14,7 @@
 
 .editorInput.activeField {
     border: 1px dashed #333;
-    background-color: #DBDBDB;
+    background-color: #FFF;
     transition: background-color 300ms linear;
 }
 
@@ -32,4 +32,11 @@
     margin-left: 20px;
     margin-right: 20px;
     display: block;
+}
+
+.container {
+    padding: 10px;
+    background-color: #edf4fc;
+    margin-left: -12px;
+    border-bottom-left-radius: 5px;
 }

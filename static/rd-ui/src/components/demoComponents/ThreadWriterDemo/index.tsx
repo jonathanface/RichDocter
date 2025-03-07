@@ -1,43 +1,31 @@
-import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
-import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
-import { $createRangeSelection, $createTextNode, $isRangeSelection, $isTextNode, $setSelection, KEY_TAB_COMMAND, LexicalEditor, LexicalNode, ParagraphNode, PASTE_COMMAND, SerializedEditorState, SerializedElementNode, SerializedLexicalNode } from 'lexical';
+import { $createRangeSelection, $createTextNode, $isRangeSelection, $isTextNode, $setSelection, KEY_TAB_COMMAND, LexicalEditor, LexicalNode, ParagraphNode, PASTE_COMMAND, SerializedEditorState } from 'lexical';
 import {
   $getRoot,
   $getSelection,
   $isElementNode,
-  EditorState,
   ElementNode,
 } from 'lexical';
 import LexicalErrorBoundary from '@lexical/react/LexicalErrorBoundary';
 import styles from "./threadwriter.module.css";
-import { Toolbar } from '../ThreadWriterToolbar';
-import { useLoader } from '../../hooks/useLoader';
-import { ProcessDBQueue } from './queue';
-import { DBOperation, DBOperationBlock, DBOperationType } from '../../types/DBOperations';
+import { useLoader } from '../../../hooks/useLoader';
 import { v4 as uuidv4 } from 'uuid';
-import { CustomParagraphNode } from './customNodes/CustomParagraphNode';
-import { BlockOrderMap } from '../../types/Document';
-import { useToaster } from '../../hooks/useToaster';
-import { AlertToastType } from '../../types/AlertToasts';
-import { AssociationDecoratorPlugin } from './plugins/AssociationDecoratorPlugin';
+import { CustomParagraphNode, CustomSerializedParagraphNode } from './customNodes/CustomParagraphNode';
+import { useToaster } from '../../../hooks/useToaster';
+import { AlertToastType } from '../../../types/AlertToasts';
+import { AssociationDecoratorPluginDemo } from './plugins/AssociationDecoratorPluginDemo';
 import { ClickableDecoratorNode } from './customNodes/ClickableDecoratorNode';
-import { Association, AssociationType, SimplifiedAssociation } from '../../types/Associations';
-import { AssociationPanel } from '../AssociationPanel';
-import { DocumentMenu } from '../DocumentMenu';
-import { useSelections } from '../../hooks/useSelections';
-import { useFetchStoryBlocks } from '../../hooks/useFetchStoryBlocks';
-import { useAssociations } from '../../hooks/useAssociations';
-import { useEditorStateUpdater } from '../../hooks/useEditorStateUpdater';
-import { dbEventEmitter, SaveSuccessPayload } from '../../utils/EventEmitter';
-import { DbOperationQueue, generateTextHash } from '../../constants/constants';
-import { getParagraphIndexByKey, serializeWithChildren } from '../../utils/helpers';
-import { ContextMenu, ContextMenuProps } from '../ContextMenu';
+import { Association, AssociationType, SimplifiedAssociation } from '../../../types/Associations';
+import { AssociationPanelDemo } from '../AssociationPanelDemo';
+import { useSelections } from '../../../hooks/useSelections';
+import { useEditorStateUpdater } from '../../../hooks/useEditorStateUpdater';
+import { ContextMenu, ContextMenuProps } from '../../ContextMenu';
 import DocumentClickPlugin, { ClickData } from './plugins/DocumentClickPlugin';
-import { useDocumentSettings } from '../../hooks/useDocumentSettings';
+import { ToolbarDemo } from '../ThreadWriterToolbarDemo';
 
 const theme = {
   'custom-paragraph': styles.customParagraph,
@@ -49,7 +37,7 @@ const theme = {
   },
 };
 
-export const ThreadWriter = () => {
+export const ThreadWriterDemo = () => {
 
   const initialConfig = {
     namespace: 'ThreadWriterEditor',
@@ -67,7 +55,6 @@ export const ThreadWriter = () => {
   const editorRef = useRef<LexicalEditor>(null);
   const isProgrammaticChange = useRef(false);
   const previousNodeKeysRef = useRef<Set<string>>(new Set());
-  const previousTextHashRef = useRef<string | null>(null);
   const pastedParagraphKeys = useRef(new Set<string>());
   const isInitialLoad = useRef(true);
   const selectedAssociation = useRef<string | null>(null);
@@ -76,7 +63,6 @@ export const ThreadWriter = () => {
   const { setAlertState } = useToaster();
   const { story, chapter } = useSelections();
   const { showLoader, hideLoader } = useLoader();
-  const { documentSettings } = useDocumentSettings();
 
   // states
   const [storyBlocks, setStoryBlocks] = useState<SerializedEditorState | null>(null);
@@ -89,15 +75,125 @@ export const ThreadWriter = () => {
   }
   const [contextMenuData, setContextMenuData] = useState<ContextMenuProps>(defaultContextData);
   const [isAssociationPanelOpen, setIsAssociationPanelOpen] = useState(false);
+  const [associations, setAssociations] = useState<SimplifiedAssociation[]>([]);
 
-  // Fetchers
-  const { getBatchedStoryBlocks, previousTableStatus, setPreviousTableStatus } = useFetchStoryBlocks(
-    story?.story_id || '',
-    chapter?.id || '',
-    setStoryBlocks,
-    previousNodeKeysRef
-  );
-  const { associations, setAssociations } = useAssociations();
+  const generateAssociations = (): SimplifiedAssociation[] => {
+    return [
+      {
+        association_id: "123",
+        association_name: "Seth Walker",
+        association_type: AssociationType.character,
+        short_description: 'A young, resourceful survivor who has grown up quickly in the aftermath of the zombie apocalypse. He lives on a remote family farm in Montana with his younger sister, Melinda.',
+        portrait: 'https://richdocter-custom-portraits.s3.us-east-1.amazonaws.com/jonathanjface-gmail.com_the-remnants_seth_character.jpg',
+        aliases: 'Seth',
+        case_sensitive: true
+      },
+      {
+        association_id: "124",
+        association_name: "Melinda Walker",
+        association_type: AssociationType.character,
+        short_description: "Melinda, Seth’s seven-year-old sister, is frail from hunger and trauma. She clings to her brother Seth for safety, quietly enduring nightmares in a harsh, dangerous new world.",
+        portrait: "https://richdocter-custom-portraits.s3.us-east-1.amazonaws.com/jonathanjface-gmail.com_the-remnants_melinda_character.jpg",
+        aliases: "Melinda",
+        case_sensitive: true
+      },
+      {
+        association_id: "125",
+        association_name: "Tommy",
+        association_type: AssociationType.character,
+        short_description: "A grizzled survivor with perm-curled gray hair, a glum expression, and a ruthless streak. Wears a leather jacket, cracks jokes, but kills without hesitation. Practical, selfish, and dangerous.",
+        portrait: "./demo-data/rocker.jpg",
+        aliases: "Rocker",
+        case_sensitive: true
+      },
+      {
+        association_id: "126",
+        association_name: "Riley",
+        association_type: AssociationType.character,
+        short_description: "A wiry man with a prominent Adam’s apple and a battered hat. A tough but anxious survivor, clinging to old-world manners.",
+        portrait: "./demo-data/cowboy.jpg",
+        aliases: "Cowboy",
+        case_sensitive: true
+      },
+      {
+        association_id: "127",
+        association_name: "Kevin",
+        association_type: AssociationType.character,
+        short_description: "A rigid, disciplined man with a stiff, sculpted flattop haircut. Wears military gear and keeps a wary eye on his surroundings. Focused, methodical, and always expecting trouble.",
+        portrait: "./demo-data/flattop.jpg",
+        aliases: "Flattop",
+        case_sensitive: true
+      },
+      {
+        association_id: "128",
+        association_name: "The Walker Farm",
+        association_type: AssociationType.place,
+        short_description: "A frost-covered, abandoned Montana farm with a broken-windowed house, a worn barn with an open hayloft, and dead crops in melting snow. Wild grass creeps in, reclaiming the silent land.",
+        portrait: "./demo-data/farm.jpg",
+        aliases: "the farm",
+        case_sensitive: false
+      },
+      {
+        association_id: "129",
+        association_name: "Bowie knife",
+        association_type: AssociationType.item,
+        short_description: "A rugged Bowie knife with a broad, sharp steel blade and a well-worn wooden handle.",
+        portrait: "./demo-data/bowie.jpg",
+        aliases: "",
+        case_sensitive: false
+      }
+    ];
+  }
+
+  const generateBlankLine = (): CustomSerializedParagraphNode => ({
+    children: [],
+    direction: "ltr",
+    format: "",
+    indent: 0,
+    textFormat: 0,
+    textStyle: "",
+    type: CustomParagraphNode.getType(),
+    version: 1,
+    key_id: uuidv4(),
+  });
+
+  const getBatchedStoryBlocks = async () => {
+    try {
+      showLoader();
+      const response = await fetch(`./demo-data/demoContent.json`);
+      if (!response.ok) throw response;
+      const data = await response.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const remappedStoryBlocks = data.items?.map((item: { chunk: any; key_id: any }) => {
+        const key = item.key_id?.Value || '';
+        previousNodeKeysRef.current.add(key);
+        const fixed: CustomSerializedParagraphNode = item.chunk?.Value
+          ? JSON.parse(item.chunk.Value)
+          : generateBlankLine();
+        fixed.key_id = key;
+
+        if (fixed.type !== CustomParagraphNode.getType()) {
+          fixed.type = CustomParagraphNode.getType();
+        }
+        return fixed;
+      }) || [];
+
+      setStoryBlocks({
+        root: {
+          children: remappedStoryBlocks,
+          type: "root",
+          version: 1,
+          direction: "ltr",
+          format: "",
+          indent: 0,
+        },
+      });
+    } catch (error: unknown) {
+      console.error("Error retrieving story content:", error);
+    } finally {
+      hideLoader();
+    }
+  };
 
   const getSelectedText = () => {
     let selectedText = '';
@@ -126,83 +222,23 @@ export const ThreadWriter = () => {
     setContextMenuData(defaultContextData);
   };
 
-  const saveAssociationsToServer = async (associations: SimplifiedAssociation[]) => {
-    if (!story?.story_id) return;
-    try {
-      showLoader();
-      const response = await fetch("/api/stories/" + story.story_id + "/associations", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(associations),
-      });
-      if (!response.ok) {
-        throw response;
-      }
-      return await response.json();
-    } catch (error: unknown) {
-      console.error(error);
-      setAlertState({
-        title: "Error saving association",
-        message: "There was an error saving your association. Please try again later.",
-        severity: AlertToastType.error,
-        open: true
-      });
-    } finally {
-      hideLoader();
-    }
-  };
-
-
   const handleMenuItemClick = async (_event: React.MouseEvent, type: AssociationType) => {
     setContextMenuData(defaultContextData);
     const text = getSelectedText();
     if (text.length) {
       // check if !contains
       const newAssociation: SimplifiedAssociation = {
+        association_id: uuidv4(),
         association_name: text,
         association_type: type,
-        association_id: "",
         short_description: "",
         portrait: "",
         aliases: "",
         case_sensitive: true
       }
-      const storedAssociation = await saveAssociationsToServer([newAssociation]);
-      if (storedAssociation) {
-        newAssociation.portrait = storedAssociation[0].portrait;
-        newAssociation.association_id = storedAssociation[0].association_id;
-        if (associations) {
-          setAssociations([...associations, newAssociation]);
-        } else {
-          setAssociations([newAssociation]);
-        }
-      }
+      setAssociations([...associations, newAssociation]);
     }
   };
-
-  const deleteAssociationsFromServer = async (associations: SimplifiedAssociation[]) => {
-    if (!story) return;
-    try {
-      showLoader();
-      const response = await fetch("/api/stories/" + story.story_id + "/associations", {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(associations),
-      });
-      if (!response.ok) {
-        throw response;
-      }
-    } catch (error: unknown) {
-      console.error(`Error deleting association: ${(error as Response).statusText}`)
-    } finally {
-      hideLoader();
-    }
-  };
-
 
   const handleDeleteAssociationClick = async () => {
     setContextMenuData(defaultContextData);
@@ -211,11 +247,9 @@ export const ThreadWriter = () => {
         return assoc.association_id === selectedAssociation.current;
       });
       selectedAssociation.current = '';
-      const deleteMe = associations[ind];
       const newAssociations = [...associations];
       newAssociations.splice(ind, 1);
       setAssociations(newAssociations);
-      await deleteAssociationsFromServer([deleteMe]);
     }
   };
 
@@ -316,158 +350,6 @@ export const ThreadWriter = () => {
     }
   }
 
-  // queue operations
-  const runQueue = useCallback(async () => {
-    try {
-      await ProcessDBQueue();
-    } catch (error) {
-      console.error((error as Error).message);
-      setAlertState({
-        title: "Unable to sync",
-        message:
-          "We are experiencing difficulty contacting the server. We'll keep attempting to save your work as long as you leave this window open, however we suggest you save a local copy of your current work.",
-        severity: AlertToastType.error,
-        open: true,
-        timeout: null
-      });
-    }
-  }, [setAlertState]);
-
-  const queueParagraphOrderResync = useCallback(() => {
-    if (!story || !chapter || !editorRef.current) return;
-    editorRef.current.read(() => {
-      const root = $getRoot();
-      const paragraphs = root.getChildren().filter((node) => node.getType() === "custom-paragraph");
-      const orderMap: BlockOrderMap = {
-        chapter_id: chapter.id,
-        blocks: []
-      }
-      paragraphs.forEach(paragraph => {
-        const index = getParagraphIndexByKey(editorRef.current, paragraph.getKey());
-        if (index !== null) {
-          const asCP = paragraph as CustomParagraphNode;
-          const customKey = asCP.getKeyId();
-          if (customKey) {
-            orderMap.blocks.push({ key_id: customKey, place: index.toString() });
-          }
-
-        }
-      })
-      DbOperationQueue.push({
-        type: DBOperationType.syncOrder,
-        orderList: orderMap,
-        blocks: [],
-        time: Date.now(),
-        storyID: story.story_id,
-        chapterID: chapter.id,
-      });
-    });
-  }, [chapter, story]);
-
-  const queueParagraphForDeletion = useCallback((customKey: string) => {
-    if (!story || !chapter) return;
-    const deleteBlock: DBOperationBlock = { key_id: customKey };
-    const storyID = story.story_id;
-    const chapterID = chapter.id;
-    const op: DBOperation = { type: DBOperationType.delete, storyID, chapterID, blocks: [deleteBlock], time: Date.now() };
-    DbOperationQueue.push(op);
-  }, [chapter, story]);
-
-  const queueParagraphForSave = useCallback((customKey: string, order: string, content: SerializedElementNode<SerializedLexicalNode>) => {
-    if (!story || !chapter) return;
-    const saveBlock: DBOperationBlock = { key_id: customKey, chunk: content, place: order };
-    const storyID = story.story_id;
-    const chapterID = chapter.id;
-    const op: DBOperation = {
-      type: DBOperationType.save,
-      storyID,
-      chapterID,
-      blocks: [saveBlock],
-      time: Date.now(),
-      tableStatus: previousTableStatus
-    };
-    DbOperationQueue.push(op);
-  }, [chapter, previousTableStatus, story]);
-
-  const queueAllParagraphsForSave = useCallback((storyID: string, chapterID: string) => {
-    if (!editorRef || !editorRef.current) {
-      console.warn("ThreadWriter - Editor, story, or chapter is not available.");
-      return;
-    }
-
-    const orderMap: BlockOrderMap = {
-      chapter_id: chapterID,
-      blocks: []
-    }
-
-    console.log("starging queue all")
-    editorRef.current.read(() => {
-      const root = $getRoot();
-      const paragraphs = root.getChildren().filter(
-        (node) => node instanceof CustomParagraphNode
-      ) as CustomParagraphNode[];
-
-      paragraphs.forEach((paragraph, index) => {
-        const key_id = paragraph.getKeyId();
-        if (!key_id) {
-          console.warn(`ThreadWriter - Paragraph at index ${index} is missing a key_id.`);
-          return;
-        }
-
-        // Serialize the paragraph
-        const serialized = serializeWithChildren(paragraph);
-        if (!serialized) {
-          console.warn(`ThreadWriter - Failed to serialize paragraph with key_id: ${key_id}`);
-          return;
-        }
-
-        // Create a save operation block
-        const saveBlock: DBOperationBlock = {
-          key_id,
-          chunk: serialized,
-          place: index.toString(), // Assuming 'place' represents the order
-        };
-
-        // Create a save operation
-        const saveOperation: DBOperation = {
-          type: DBOperationType.save,
-          storyID: storyID,
-          chapterID: chapterID,
-          blocks: [saveBlock],
-          time: Date.now(),
-        };
-
-        // Enqueue the save operation
-        DbOperationQueue.push(saveOperation);
-        orderMap.blocks.push({ key_id, place: index.toString() });
-
-      });
-
-      DbOperationQueue.push({
-        type: DBOperationType.syncOrder,
-        orderList: orderMap,
-        blocks: [],
-        time: Date.now(),
-        storyID: storyID,
-        chapterID: chapterID,
-      });
-
-      try {
-        runQueue();
-      } catch (error) {
-        console.error("error from db queue", error);
-      }
-      setAlertState({
-        title: "Chapter ready",
-        message:
-          "Your chapter assets are complete and your content was saved",
-        severity: AlertToastType.success,
-        open: true,
-        timeout: 10000,
-      });
-    });
-  }, [setAlertState, runQueue]);
-
 
   useEditorStateUpdater(editorRef, storyBlocks, isProgrammaticChange);
 
@@ -548,49 +430,24 @@ export const ThreadWriter = () => {
     return () => document.removeEventListener("touchend", handleTouchEnd);
   }, []);
 
-
-  useEffect(() => {
-    // this effect will wait for tables with previous statuses (stati?) of 501 (assets not ready yet)
-    // are now deployed and you should synch all current data nodes with the cloud now
-    const handleSaveSuccess = (event: Event) => {
-      const customEvent = event as CustomEvent<SaveSuccessPayload>;
-      const payload = customEvent.detail;
-      setPreviousTableStatus('ok');
-      queueAllParagraphsForSave(payload.storyID, payload.chapterID);
-    };
-    dbEventEmitter.addEventListener('saveSuccess', handleSaveSuccess);
-    return () => {
-      dbEventEmitter.removeEventListener('saveSuccess', handleSaveSuccess);
-    }
-  }, [queueAllParagraphsForSave, setPreviousTableStatus]);
-
   // Merged useEffect to handle both story and chapter changes
   useEffect(() => {
-    if (story?.story_id && chapter?.id) {
-      console.log("Story or Chapter changed:", { story, chapter });
-      const fetchData = async () => {
-        if (isInitialLoad.current && editorRef.current) {
-          console.log("Initial load: fetching story blocks and associations");
-          isProgrammaticChange.current = true; // Start programmatic change
-          await getBatchedStoryBlocks("");
-          const newHash = generateTextHash(editorRef.current);
-          previousTextHashRef.current = newHash;
-          isProgrammaticChange.current = false; // End programmatic change
-          isInitialLoad.current = false;
-        } else {
-          console.log("Chapter change: fetching new story blocks");
-          isProgrammaticChange.current = true; // Start programmatic change
-          previousNodeKeysRef.current.clear(); // Clear previous keys to prevent DELETEs
-          await getBatchedStoryBlocks("");
-          isProgrammaticChange.current = false; // End programmatic change
-        }
-      };
-      startTransition(() => {
-        fetchData();
-      });
-    }
+
+    console.log("Story or Chapter changed:", { story, chapter });
+    const fetchData = async () => {
+      if (isInitialLoad.current && editorRef.current) {
+        setAssociations(generateAssociations());
+        isInitialLoad.current = false;
+        console.log("Initial load: fetching story blocks and associations");
+        isProgrammaticChange.current = true; // Start programmatic change
+        await getBatchedStoryBlocks();
+        isProgrammaticChange.current = false; // End programmatic change
+      }
+    };
+    fetchData();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [story?.story_id, chapter?.id, getBatchedStoryBlocks]);
+  }, [getBatchedStoryBlocks]);
 
   useEffect(() => {
     if (editorRef.current) {
@@ -602,25 +459,8 @@ export const ThreadWriter = () => {
           node.replace(replacement);
         }
       });
-
-      // Handle empty CustomParagraphNodes
-      editorRef.current.registerNodeTransform(CustomParagraphNode, (node: CustomParagraphNode) => {
-        if (node.getTextContent().trim() === "") {
-          // Prevent redundant replacement of already empty nodes
-          editorRef.current?.update(() => {
-            const index = getParagraphIndexByKey(editorRef.current, node.getKey());
-            if (index !== null) {
-              const id = node.getKeyId();
-              if (id) {
-                queueParagraphForSave(id, index.toString(), serializeWithChildren(node));
-              }
-            }
-          });
-
-        }
-      });
     }
-  }, [queueParagraphForSave]);
+  }, []);
 
   useEffect(() => {
     if (editorRef.current) {
@@ -653,18 +493,6 @@ export const ThreadWriter = () => {
       );
     }
   }, []);
-
-  useEffect(() => {
-    const processInterval = setInterval(() => {
-      runQueue();
-    }, 5000);
-    window.addEventListener("unload", () => {
-    });
-    return () => {
-      clearInterval(processInterval);
-      window.removeEventListener("unload", () => { });
-    };
-  }, [story?.story_id, setAlertState, runQueue]);
 
   useEffect(() => {
     if (editorRef.current) {
@@ -706,10 +534,9 @@ export const ThreadWriter = () => {
                 if (isParentEmpty) {
                   parent.clear();
                 }
-                console.log('check tabs');
+
                 paragraphs.forEach((paragraphText, index) => {
                   if (index > 0 && !paragraphText.startsWith("\t")) {
-                    console.log("prepend tab")
                     paragraphText = `\t${paragraphText}`;
                   }
 
@@ -779,114 +606,21 @@ export const ThreadWriter = () => {
     }
   }, [setAlertState]);
 
-  const onChangeHandler = useCallback((editorState: EditorState) => {
-    if (isProgrammaticChange.current) {
-      console.log("Programmatic change detected, skipping onChange handling.");
-      return;
-    }
-    if (!editorRef.current) return;
-    const currentHash = generateTextHash(editorRef.current);
-    const previousHash = previousTextHashRef.current;
-
-    if (currentHash === previousHash) {
-      console.log("No content changes detected, skipping onChange handling.");
-      return;
-    }
-    previousTextHashRef.current = currentHash;
-
-    editorState.read(() => {
-      const root = $getRoot();
-      const children = root.getChildren();
-      const currentNodeKeys = new Set<string>();
-      const newParagraphKeys = new Set<string>();
-      const paragraphsToSave: { key_id: string, order: string, content: SerializedElementNode<SerializedLexicalNode> }[] = [];
-      const paragraphsToDelete: string[] = [];
-      let orderResyncRequired = false;
-
-      children.forEach((node, index) => {
-        if (node instanceof CustomParagraphNode) {
-          const id = node.getKeyId();
-          if (id) {
-            currentNodeKeys.add(id);
-
-            if (!previousNodeKeysRef.current.has(id)) {
-              newParagraphKeys.add(id);
-              if (index !== children.length - 1) {
-                orderResyncRequired = true;
-              }
-            }
-            const selection = $getSelection();
-            const customParagraph = $isRangeSelection(selection) ? selection.anchor.getNode().getParent() : null;
-            const selectedNodeKey = customParagraph instanceof CustomParagraphNode ? customParagraph.getKeyId() : null;
-            if (pastedParagraphKeys.current.has(id) || newParagraphKeys.has(id) || id === selectedNodeKey) {
-              const serialized = serializeWithChildren(node);
-              paragraphsToSave.push({ key_id: serialized.key_id, order: index.toString(), content: serialized });
-            }
-            previousNodeKeysRef.current.delete(id);
-          }
-        }
-      });
-
-      // Remaining keys in previousNodeKeysRef are to be deleted
-      const deletedKeys = Array.from(previousNodeKeysRef.current);
-      paragraphsToDelete.push(...deletedKeys);
-
-      // Reset previousNodeKeysRef to current keys
-      previousNodeKeysRef.current = currentNodeKeys;
-
-      // Queue deletions
-      paragraphsToDelete.forEach(key => queueParagraphForDeletion(key));
-
-      // Queue saves
-      paragraphsToSave.forEach(paragraph => queueParagraphForSave(paragraph.key_id, paragraph.order, paragraph.content));
-
-      // If order resync is required, queue it
-      if (orderResyncRequired) queueParagraphOrderResync();
-    });
-  }, [queueParagraphForDeletion, queueParagraphForSave, queueParagraphOrderResync]);
-
-
   const onAssociationEditCallback = useCallback(async (assoc: Association) => {
-    if (!story) return;
-    try {
-      showLoader();
-      const response = await fetch("/api/stories/" + story.story_id + "/associations", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify([assoc]),
-      });
-      if (!response.ok) {
-        throw new Error(`Error saving association: ${response.body}`);
-      }
-    } catch (error: unknown) {
-      console.error(`Error saving association: ${error}`)
-      setAlertState({
-        title: "Save Failure",
-        message:
-          "We are unable to save your association. Please try again later.",
-        severity: AlertToastType.error,
-        open: true
-      });
-    } finally {
-      setAssociations((prevAssociations: SimplifiedAssociation[] = []) =>
-        prevAssociations.map((storedAssociation) =>
-          storedAssociation.association_id === assoc.association_id
-            ? { ...storedAssociation, ...assoc }
-            : storedAssociation
-        )
-      );
-      hideLoader();
-    }
-  }, [story, hideLoader, showLoader, setAlertState, setAssociations]);
+    console.log("callback")
+    setAssociations((prevAssociations: SimplifiedAssociation[] = []) =>
+      prevAssociations.map((storedAssociation) =>
+        storedAssociation.association_id === assoc.association_id
+          ? { ...storedAssociation, ...assoc }
+          : storedAssociation
+      )
+    );
+  }, [setAssociations]);
 
   const handleDocumentLeftClick = (event: MouseEvent | TouchEvent) => {
     setContextMenuData(defaultContextData);
     if (!editorRef.current) return;
-
     editorRef.current.focus();
-
     // Use setTimeout to ensure selection updates after browser processing
     setTimeout(() => {
       editorRef.current?.update(() => {
@@ -994,11 +728,6 @@ export const ThreadWriter = () => {
     setContextMenuData(contextData);
   }
 
-  if (!story || !story.story_id || !chapter || !chapter.id) {
-    console.warn("Story and chapter not loaded yet.");
-    return;
-  }
-
   return (
 
     <div className={styles.outerWrapper}>
@@ -1010,23 +739,21 @@ export const ThreadWriter = () => {
           },
         }}
       >
-        <Toolbar />
+        <ToolbarDemo />
         <div className={styles.editorRow}>
           <div className={styles.editorArea}>
             <RichTextPlugin
-              contentEditable={<ContentEditable tabIndex={0} className={styles.editorInput} spellCheck={documentSettings?.spellcheck} />}
+              contentEditable={<ContentEditable className={styles.editorInput} spellCheck={false} />}
               ErrorBoundary={LexicalErrorBoundary}
             />
-            <AssociationDecoratorPlugin isProgrammaticChange={isProgrammaticChange} scrollToTop={true} customLeftClick={handleAssociationLeftClick} customRightClick={handleAssociationRightClick} />
-            <OnChangePlugin onChange={onChangeHandler} />
+            <AssociationDecoratorPluginDemo associations={associations} isProgrammaticChange={isProgrammaticChange} scrollToTop={true} customLeftClick={handleAssociationLeftClick} customRightClick={handleAssociationRightClick} />
             <HistoryPlugin />
             <DocumentClickPlugin onLeftClick={handleDocumentLeftClick} onRightClick={handleDocumentRightClick} />
-            <AssociationPanel onEditCallback={onAssociationEditCallback} isAssociationPanelOpen={isAssociationPanelOpen} setIsAssociationPanelOpen={setIsAssociationPanelOpen} selectedAssociationID={selectedAssociation.current} />
+            <AssociationPanelDemo associations={associations} onEditCallback={onAssociationEditCallback} isAssociationPanelOpen={isAssociationPanelOpen} setIsAssociationPanelOpen={setIsAssociationPanelOpen} selectedAssociationID={selectedAssociation.current} />
             <ContextMenu name={contextMenuData.name} visible={contextMenuData.visible} x={contextMenuData.x} y={contextMenuData.y} items={contextMenuData.items} />
           </div>
-          <DocumentMenu onAssociationClick={handleAssociationLeftClick} />
         </div>
       </LexicalComposer>
-    </div>
+    </div >
   );
 };

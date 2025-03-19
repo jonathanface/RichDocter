@@ -1,7 +1,7 @@
 // AssociationInlineNode.ts
-import { IS_BOLD, IS_ITALIC, IS_STRIKETHROUGH, IS_UNDERLINE, TextNode } from "lexical";
+import { IS_BOLD, IS_ITALIC, IS_STRIKETHROUGH, IS_UNDERLINE, LexicalNode, TextNode } from "lexical";
 import styles from './associationinlinenode.module.css';
-import { ClickData } from "../plugins/DocumentClickPlugin";
+import { ClickData } from "../plugins/DocumentClickPluginDemo";
 
 let tooltipElement: null | HTMLDivElement = null;
 
@@ -12,7 +12,7 @@ const formatMap: { [key: number]: string } = {
     [IS_UNDERLINE]: 'underline'
 };
 
-export class AssociationInlineNode extends TextNode {
+export class AssociationInlineNodeDemo extends TextNode {
     __associationId: string;
     __shortDescription: string;
     __associationType: string;
@@ -47,8 +47,8 @@ export class AssociationInlineNode extends TextNode {
         return this.__format;
     }
 
-    static clone<T extends AssociationInlineNode>(node: T): T {
-        const cloned = new AssociationInlineNode(
+    static clone<T extends AssociationInlineNodeDemo>(node: T): T {
+        const cloned = new AssociationInlineNodeDemo(
             node.getTextContent(),
             node.__associationId,
             node.__shortDescription,
@@ -118,29 +118,16 @@ export class AssociationInlineNode extends TextNode {
         }
     }
 
-    isUnmergeable(): boolean {
-        return true;
-    }
-
-    canInsertTextBefore(): boolean {
+    canMergeWith(): boolean {
         return false;
     }
 
-    canInsertTextAfter(): boolean {
-        return false;
+    mergeWith(): LexicalNode {
+        return this;
     }
-
 
     showTooltipLoader = () => {
 
-    }
-
-    hideHovers() {
-        document.querySelectorAll('#association-tooltip').forEach(el => el.remove());
-        if (tooltipElement) {
-            tooltipElement.remove();
-            tooltipElement = null; // Make sure to set it to null
-        }
     }
 
     showTooltip = (event: MouseEvent) => {
@@ -200,8 +187,6 @@ export class AssociationInlineNode extends TextNode {
         tooltip.classList.add(styles.show);
     };
 
-
-
     // hideTooltip = () => {
     //     if (tooltipElement) {
     //         tooltipElement.classList.remove(styles.show);
@@ -256,7 +241,6 @@ export class AssociationInlineNode extends TextNode {
 
     // Override createDOM to add your custom classes and data attributes.
     createDOM(): HTMLElement {
-        if (this.__decorator) return this.__decorator;
         this.__decorator = document.createElement('span');
         this.__decorator.classList.add(styles.associationInline);
         this.__decorator.classList.add(styles[this.__associationType]);
@@ -275,7 +259,6 @@ export class AssociationInlineNode extends TextNode {
         }
 
         this.__decorator.addEventListener('mouseenter', (event: MouseEvent) => {
-            console.log("enter", this.__text);
             this.showTooltip(event)
         });
         this.__decorator.addEventListener('mouseleave', () => {
@@ -283,14 +266,17 @@ export class AssociationInlineNode extends TextNode {
                 tooltipElement.remove();
                 tooltipElement = null;
             }
-            console.log("leave", this.__text)
         });
 
         return this.__decorator;
     }
 
+    hideHovers() {
+        document.querySelectorAll('#association-tooltip').forEach(el => el.remove());
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    updateDOM(prevNode: AssociationInlineNode, dom: HTMLElement, config: any): boolean {
+    updateDOM(prevNode: AssociationInlineNodeDemo, dom: HTMLElement, config: any): boolean {
         this.__decorator = dom;
         //this.reactivate();
         return super.updateDOM(prevNode as this, dom, config);
@@ -310,7 +296,7 @@ export class AssociationInlineNode extends TextNode {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    static importJSON(serializedNode: any): AssociationInlineNode {
+    static importJSON(serializedNode: any): AssociationInlineNodeDemo {
         return $createAssociationInlineNode(
             serializedNode.text,
             serializedNode.associationId,
@@ -334,11 +320,11 @@ export function $createAssociationInlineNode(
     leftClickCallback?: (value: ClickData) => void,
     rightClickCallback?: (value: ClickData) => void,
     format?: number
-): AssociationInlineNode {
-    return new AssociationInlineNode(text, associationId, shortDescription, associationType, portrait, leftClickCallback, rightClickCallback, format);
+): AssociationInlineNodeDemo {
+    return new AssociationInlineNodeDemo(text, associationId, shortDescription, associationType, portrait, leftClickCallback, rightClickCallback, format);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function $isAssociationInlineNode(node: any): node is AssociationInlineNode {
-    return node instanceof AssociationInlineNode;
+export function $isAssociationInlineNode(node: any): node is AssociationInlineNodeDemo {
+    return node instanceof AssociationInlineNodeDemo;
 }

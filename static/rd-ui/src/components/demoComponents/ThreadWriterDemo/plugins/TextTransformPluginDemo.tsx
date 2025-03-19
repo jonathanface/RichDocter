@@ -4,14 +4,11 @@ import { useEffect } from "react";
 import {
     TextNode,
     $getNodeByKey,
-    $isTextNode,
-    $createPoint,
-    $createRangeSelection,
-    $setSelection
+    $isTextNode
 } from "lexical";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 
-export function TextTransformPlugin() {
+export function TextTransformPluginDemo() {
     const [editor] = useLexicalComposerContext();
 
     useEffect(() => {
@@ -40,14 +37,6 @@ export function TextTransformPlugin() {
                                     .replace(/‘/g, "'")
                                     .replace(/’/g, "'");
                                 node.setTextContent(replaced);
-
-                                // Move the selection to the end of the replaced text
-                                const replacedLength = replaced.length;
-                                const point = $createPoint(node.getKey(), replacedLength, 'text');
-                                const rangeSelection = $createRangeSelection();
-                                rangeSelection.anchor = point;
-                                rangeSelection.focus = point;
-                                $setSelection(rangeSelection);
                             }
                         }
                     }

@@ -1,6 +1,5 @@
 import { Box, CircularProgress, Drawer, FormControlLabel, IconButton, Switch, TextField } from "@mui/material";
 import { Association, SimplifiedAssociation } from "../../../types/Associations";
-import { ClickableDecoratorNode } from "../ThreadWriterDemo/customNodes/ClickableDecoratorNode";
 import styles from './association-ui.module.css'
 import { PortraitDropper } from "../../PortraitDropper";
 import { useEffect, useRef, useState } from "react";
@@ -11,11 +10,12 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { AssociationDecoratorPluginDemo } from "../ThreadWriterDemo/plugins/AssociationDecoratorPluginDemo";
 import LexicalErrorBoundary from "@lexical/react/LexicalErrorBoundary";
 import { $createParagraphNode, $createTextNode, $getRoot, EditorState, LexicalEditor } from "lexical";
-import { ClickData } from "../ThreadWriterDemo/plugins/DocumentClickPlugin";
+import { ClickData } from "../ThreadWriterDemo/plugins/DocumentClickPluginDemo";
 import { CharacterLimitPlugin } from "@lexical/react/LexicalCharacterLimitPlugin";
 import { OverflowNode } from "@lexical/overflow";
 import { UCWords } from "../ThreadWriterDemo/utilities";
 import CloseIcon from '@mui/icons-material/Close';
+import { AssociationInlineNodeDemo } from "../ThreadWriterDemo/customNodes/AssociationInlineNodeDemo";
 
 interface AssociationProps {
   onEditCallback: (association: Association) => void;
@@ -37,7 +37,7 @@ const descriptionConfig = {
   namespace: 'DescriptionEditor',
   theme,
   nodes: [
-    ClickableDecoratorNode,
+    AssociationInlineNodeDemo,
     OverflowNode
   ],
   onError: (error: Error) => {
@@ -48,7 +48,7 @@ const bgConfig = {
   namespace: 'BackgroundEditor',
   theme,
   nodes: [
-    ClickableDecoratorNode
+    AssociationInlineNodeDemo
   ],
   onError: (error: Error) => {
     console.error('BG error:', error);

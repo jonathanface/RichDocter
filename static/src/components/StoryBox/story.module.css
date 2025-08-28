@@ -1,0 +1,89 @@
+.storyBoxContainer {
+  max-width: 300px;
+  background: none;
+  border: none;
+  color: #eaeaea;
+  filter: drop-shadow(2px 2px 2px #1a1a1a);
+  letter-spacing: 1.5px;
+  text-align: center;
+  margin-right: 20px;
+  margin-bottom: 20px;
+  min-width: 300px;
+  min-height: 300px;
+}
+
+.storyBoxContainer:hover {
+  cursor: pointer;
+  color: #fff;
+}
+
+.storyBoxContainer img {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(2px 2px 2px #1a1a1a);
+  vertical-align: top;
+  max-height: 100%;
+  border-radius: 20px;
+}
+
+.storyBoxContainer img.seriesImage {
+  cursor: initial;
+}
+
+.storyBoxContainer .storyText {
+  display: flex;
+  align-content: center;
+}
+
+.storyBoxContainer .storyText .iconDeleteBtn {
+  margin-left: auto;
+}
+
+.storyBoxContainer .storyLabel {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #282828;
+  opacity: 0.9;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  width: 80%;
+  margin: 0 auto;
+}
+
+.storyBoxContainer .storyLabel .title {
+  margin-right: 15px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.storyBoxContainer .storyLabel .buttons {
+  white-space: nowrap;
+}
+
+.storyBoxContainer .storyBubble {
+  position: relative;
+  overflow: hidden;
+}
+
+.storyBoxContainer .dragHandle {
+  cursor: grab;
+}
+
+.storyBoxContainer .dragHandle:hover {
+  opacity: 0.8;
+}
+
+@media only screen and (max-width: 600px) {
+  .storyBoxContainer {
+    min-width: 0;
+    width: 100%;
+    margin: 0 auto;
+    margin-bottom: 20px;
+  }
+}

@@ -1,0 +1,147 @@
+.outerWrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.editorRow {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  margin: 0 auto;
+  margin-top: 20px;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+}
+
+/* Editor area is allowed to expand; margin-right for spacing if desired */
+.editorArea {
+  width: 216mm;
+  margin-right: 10px;
+  text-align: left;
+  padding: 0;
+}
+
+/* Editor.module.css */
+.placeholder {
+  position: relative;
+  top: 1in;
+  /* Align with padding */
+  left: 1in;
+  /* Align with padding */
+  font-size: 16px;
+  font-style: italic;
+  color: #888;
+  pointer-events: none;
+  /* Prevent interactions */
+}
+
+/* General editor styling */
+.editorInput {
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  color: #333;
+  padding: 1in;
+  border: 2px solid #333;
+  border-radius: 4px;
+  background-color: #fff;
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+  outline: none;
+  line-height: 2em;
+  overflow: auto;
+  border-radius: 5px;
+  outline: none !important;
+  box-sizing: border-box;
+  min-height: 279mm;
+}
+
+.editorInput>p {
+  margin: 0;
+}
+
+/* Styling for focused state */
+.editorInput:focus {
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+/* Paragraph styling */
+.customParagraph {
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  outline: none !important;
+}
+
+
+
+/* Links */
+a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Custom blockquote styling */
+.blockquote {
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  background-color: #f9f9f9;
+  border-left: 4px solid #ccc;
+  font-style: italic;
+}
+
+/* List styles */
+ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+li {
+  margin-bottom: 4px;
+}
+
+.bold {
+  font-weight: bold;
+}
+
+/* Italic text */
+.italic {
+  font-style: italic;
+}
+
+/* Underlined text */
+.underline {
+  text-decoration: underline;
+}
+
+.strikethrough {
+  text-decoration: line-through;
+}
+
+@media only screen and (max-width: 600px) {
+  .editorRow {
+    margin: 10px;
+    margin-top: 15px;
+
+  }
+
+  .editorArea {
+    width: calc(100% - 40px);
+    margin-right: 0;
+  }
+
+  .editorInput {
+    padding: 10px;
+    min-height: 200px;
+  }
+}

@@ -1,0 +1,103 @@
+header {
+    display: grid;
+    z-index: 5;
+    width: 100%;
+    background-color: #4F6464;
+    grid-template-columns: auto auto;
+    /* Two columns with automatic width */
+    justify-content: space-between;
+    /* Spread columns to opposite sides */
+    align-items: center;
+    /* Align items vertically (optional) */
+    width: 100%;
+    /* Ensure the container spans the full width */
+    height: 100px;
+    padding: 0px 20px;
+    box-sizing: border-box;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+    position: sticky;
+    top: 0;
+    line-height: 1rem;
+    background-color: #495960;
+}
+
+header .leftPane {
+    display: inline-flex;
+    align-items: center;
+}
+
+header .storyInfo {
+    font-size: 1.5em;
+    text-align: left;
+    color: #f0f0f0;
+    line-height: 1.5rem;
+    display: flex;
+    align-items: center;
+}
+
+header .storyInfo .storyData {
+    margin-left: 10px;
+}
+
+header .storyInfo img {
+    max-height: 50px;
+    border: 1px solid #333;
+    border-radius: 15px;
+}
+
+header .storyInfo input {
+    font-size: 1.5rem;
+    padding: 0;
+    margin: 0;
+    line-height: 1.5rem;
+}
+
+header .seriesInfo {
+    font-size: 0.8rem;
+    line-height: 0.8rem;
+    margin-top: 3px;
+    color: #ccc;
+    margin-left: 3px;
+}
+
+header .seriesInfo input {
+    font-size: 0.8rem;
+    line-height: 0.8rem;
+    padding: 0;
+    margin: 0;
+}
+
+header .logoImage {
+    width: 50px;
+    height: 50px;
+    margin-right: 20px;
+}
+
+@media only screen and (max-width: 600px) {
+    header {
+        height: 70px;
+        padding: 0 10px;
+    }
+
+    header .storyInfo {
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+
+    header .storyInfo .storyData {
+        margin-left: 5px;
+    }
+
+    header .seriesInfo {
+        font-size: 0.8rem;
+        margin-top: -3px;
+    }
+
+    header .logoImage {
+        margin-right: 0;
+    }
+
+    header .leftPane {
+        margin-right: 50px;
+    }
+}

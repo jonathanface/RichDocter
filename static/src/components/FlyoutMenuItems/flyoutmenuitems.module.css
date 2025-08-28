@@ -1,0 +1,13 @@
+.newButtonLabel {
+    margin-top: 3px;
+}
+
+.chapterMenuItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.activeChapter {
+    background-color: #f4f4f4;
+}

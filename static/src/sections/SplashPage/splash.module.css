@@ -1,0 +1,131 @@
+.splash {
+  color: #333;
+}
+
+.demo {
+  width: 800px;
+  max-height: 600px;
+  margin: 0 auto;
+  overflow: auto;
+  border-radius: 10px;
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.splash .blurb {
+  background-color: azure;
+  width: 60%;
+  margin: 0 auto;
+  border-radius: 15px;
+  filter: drop-shadow(2px 2px 2px #1a1a1a);
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  padding: 50px;
+  margin-top: 50px;
+}
+
+.splash .blurb .column {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  flex: 1;
+}
+
+.splash .blurb .column.leftText {
+  text-align: left;
+}
+
+.introText {
+  margin: 20px auto;
+  width: 800px;
+  font-size: 1.2rem;
+  text-align: center;
+  color: #F9F9F9;
+  padding-bottom: 20px;
+}
+
+.introText h4 {
+  font-size: 2rem;
+  font-weight: normal;
+}
+
+.demoHeader {
+  text-align: left;
+  width: 100%;
+}
+
+.splash .blurb .column img {
+  max-height: 350px;
+  border-radius: 15px;
+  border: 1px solid #333;
+  filter: drop-shadow(2px 2px 2px #1a1a1a);
+}
+
+.splash .blurb video {
+  width: 500px;
+  border-radius: 15px;
+  border: 1px solid #333;
+  filter: drop-shadow(2px 2px 2px #1a1a1a);
+}
+
+.loginBtn {
+  text-align: center;
+  position: relative;
+  margin-top: 40px;
+  z-index: 1;
+}
+
+.loginBtn>a {
+  font-size: 0.8rem;
+  color: #f0f0f0;
+  cursor: pointer;
+  border: 1px solid #f0f0f0;
+  border-radius: 15px;
+  padding: 15px;
+  position: relative;
+  background-color: #1b2828;
+  filter: drop-shadow(2px 2px 2px #1a1a1a);
+  z-index: 10;
+}
+
+@media only screen and (max-width: 600px) {
+  .demo {
+    width: 100%;
+  }
+
+  .introText {
+    width: 90%;
+    padding: 20px;
+    font-size: 1rem;
+  }
+
+  .introText h4 {
+    font-size: 1.2rem;
+  }
+
+  .splash .blurb {
+    width: initial;
+    margin-left: 10px;
+    margin-right: 10px;
+    padding: 10px;
+    flex-direction: column;
+  }
+
+  .splash .blurb video {
+    width: 100%;
+    margin-top: 20px;
+  }
+
+  .splash .blurb figure {
+    margin: 0;
+  }
+
+  .splash .blurb img {
+    width: 100%;
+  }
+
+  .splash .blurb .column h2,
+  .splash .blurb .column p {
+    margin: 0;
+  }
+}

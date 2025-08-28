@@ -1,0 +1,133 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  font-family: "Roboto", "Helvetica", "Arial", sans-serif;
+  font-weight: 400;
+  font-size: 18px;
+  line-height: 1.5;
+  letter-spacing: 0.00938em;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  height: 100vh;
+  max-height: 100vh;
+}
+
+html {
+  padding-bottom: 100px;
+}
+
+.form-error {
+  color: rgba(255, 0, 0, 0.6);
+  margin: 1.1em;
+}
+
+a {
+  color: #fff;
+}
+
+a:hover {
+  color: #8b8b8b;
+}
+
+body {
+  min-height: 100%;
+  background-color: #495960;
+  display: flex;
+  flex-direction: column;
+}
+
+#root {
+  flex: 1 0 auto;
+}
+
+.App {
+  text-align: center;
+}
+
+main {
+  display: inline-block;
+  width: 100%;
+}
+
+.MultiTreeItem-root {
+  padding-top: 0px;
+  padding-left: 0.5em;
+}
+
+.loading-screen {
+  position: absolute;
+  z-index: 2000;
+  top: 0px;
+  height: 100%;
+  width: 100%;
+}
+
+.loading-screen .progress-box {
+  background-color: #000;
+  height: 100%;
+  width: 100%;
+  opacity: 0.5;
+}
+
+.loading-screen .prog-anim-holder {
+  display: flex;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  position: absolute;
+  top: 0px;
+}
+
+.alert-toast {
+  text-align: left;
+  filter: drop-shadow(1px 1px 1px #1a1a1a);
+}
+
+.alert-toast a {
+  color: #495960;
+}
+
+.alert-toast a:hover {
+  color: #333;
+}
+
+.alert-toast .MuiAlert-message {
+  padding: 8px;
+}
+
+.MuiFormControl-root {
+  width: 100%;
+}
+
+.alert-popup {
+  width: 300px;
+  max-height: 400px;
+}
+
+.alert-popup .line {
+  margin-bottom: 20px;
+}
+
+footer {
+  text-align: center;
+  width: 100%;
+  font-size: 0.7em;
+  color: azure;
+  padding: 25px;
+  flex-shrink: 0;
+}
+
+@media only screen and (max-width: 600px) {
+  footer {
+    padding-left: 0px;
+    padding-right: 0px;
+  }
+
+  body {
+    font-size: 16px;
+  }
+}

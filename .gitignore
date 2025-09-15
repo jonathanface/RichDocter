@@ -1,5 +1,4 @@
 # Binaries for programs and plugins
-richdocter
 *.exe
 *.dll
 *.so
@@ -9,9 +8,6 @@ richdocter
 config.json
 bundle.js
 application
-RichDocter
-richdocter.zip
-richdocter
 dist
 vite.config.js
 coverage/
@@ -26,9 +22,9 @@ coverage/
 .glide/
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-static/rd-ui/node_modules/
-static/rd-ui/build/
-static/rd-ui/dist/
+static/node_modules/
+static/build/
+static/dist/
 node_modules
 /.pnp
 .pnp.js
@@ -53,3 +49,4 @@ yarn-error.log*
 *.zip
 .aider*
 bootstrap
+bin/richdocter

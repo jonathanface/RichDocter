@@ -247,7 +247,7 @@ func CreateAssociationsEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isSubscriber, ok = r.Context().Value(ctxkey.Subscriber).(bool); !ok {
-		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
+		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve subscriber key from context")
 		return
 	}
 
@@ -266,8 +266,8 @@ func CreateAssociationsEndpoint(w http.ResponseWriter, r *http.Request) {
 			RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if len(existingAssoc) >= 5 {
-			RespondWithError(w, http.StatusUnauthorized, "insufficient subscription")
+		if len(existingAssoc) >= NON_SUBSCRIBER_MAX_ASSOC {
+			RespondWithError(w, http.StatusPaymentRequired, "insufficient subscription")
 			return
 		}
 	}

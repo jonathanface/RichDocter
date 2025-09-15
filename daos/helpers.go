@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path"
@@ -19,9 +20,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
+	stripe "github.com/stripe/stripe-go/v79"
+	stripesub "github.com/stripe/stripe-go/v79/subscription"
 )
 
-func GenerateStoryOutlineSections(typeOf models.OutlineType) []models.OutlineSection {
+func GenerateStoryOutlineSections(typeOf models.OutlineTemplate) []models.OutlineSection {
 	var sections []models.OutlineSection
 	switch typeOf {
 	case models.ThreeAct:
@@ -427,215 +430,279 @@ func (d *DAO) GetTotalCreatedStories(email string) (storiesCount int, err error)
 	return
 }
 
-func (d *DAO) CheckTableStatus(tableName string) (string, error) {
-	resp, err := d.DynamoClient.DescribeTable(context.TODO(), &dynamodb.DescribeTableInput{
-		TableName: aws.String(tableName),
-	})
-	if err != nil {
-		return "", err
+func isResourceNotFound(err error) bool {
+	var op *smithy.OperationError
+	if errors.As(err, &op) {
+		var nf *types.ResourceNotFoundException
+		return errors.As(op.Unwrap(), &nf)
 	}
-	return string(resp.Table.TableStatus), nil
+	return false
 }
 
-// func (d *DAO) waitForTableToGoActive(tableName string, maxRetries int, delayBetweenRetries time.Duration) error {
-// 	for i := 0; i < maxRetries; i++ {
-// 		resp, err := d.DynamoClient.DescribeTable(context.TODO(), &dynamodb.DescribeTableInput{
-// 			TableName: &tableName,
-// 		})
-// 		if err != nil {
-// 			return err
-// 		}
+// Detect TableInUse from RestoreTableFromBackup
+func isTableInUse(err error) bool {
+	var op *smithy.OperationError
+	if errors.As(err, &op) {
+		var inUse *types.TableInUseException
+		return errors.As(op.Unwrap(), &inUse)
+	}
+	return false
+}
 
-// 		if resp.Table.TableStatus == types.TableStatusActive {
-// 			return nil
-// 		}
-// 		time.Sleep(delayBetweenRetries)
-// 	}
-// 	return fmt.Errorf("table %s did not become active after %d retries", tableName, maxRetries)
-// }
+func waitForTableStatus(ctx context.Context, client dynamoDBClient, tableName, chapterName, want string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	backoff := 500 * time.Millisecond
 
-// func (d *DAO) copyTableContents(email, srcTableName, destTableName string) error {
-// 	describeInput := &dynamodb.DescribeTableInput{
-// 		TableName: &destTableName,
-// 	}
-// 	describeResp, err := d.DynamoClient.DescribeTable(context.TODO(), describeInput)
-// 	var resourceNotFoundErr *types.ResourceNotFoundException
-// 	if err != nil {
-// 		return err
-// 	}
-// 	if err == nil {
-// 		// The destination table exists, check its status.
-// 		if describeResp.Table.TableStatus != types.TableStatusActive {
-// 			// Table exists but is not active, you may need to wait.
-// 			err = d.waitForTableToGoActive(destTableName, 20, time.Second*1)
-// 			if err != nil {
-// 				return fmt.Errorf("destination table %s is not ready: %v", destTableName, err)
-// 			}
-// 		}
-// 	} else if !errors.As(err, &resourceNotFoundErr) {
-// 		// Other error other than not found, fail the operation.
-// 		return fmt.Errorf("error checking status of destination table %s: %v", destTableName, err)
-// 	}
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for table %s to reach status %s", tableName, want)
+		}
+		out, err := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+			TableName: aws.String(tableName),
+		})
+		if err != nil {
+			if isResourceNotFound(err) && want == "NOT_EXISTS" {
+				return nil
+			}
+		} else {
+			got := string(out.Table.TableStatus)
+			log.Printf("table %s status is: %s\n", chapterName, got)
+			if got == want {
+				return nil
+			}
+		}
+		time.Sleep(backoff)
+		// capped exponential backoff
+		if backoff < 5*time.Second {
+			backoff *= 2
+		}
+	}
+}
 
-// 	paginator := dynamodb.NewScanPaginator(d.DynamoClient, &dynamodb.ScanInput{
-// 		TableName: &srcTableName,
-// 	})
-// 	for paginator.HasMorePages() {
-// 		page, err := paginator.NextPage(context.TODO())
-// 		if err != nil {
-// 			return err
-// 		}
+func (d *DAO) kickoffRestoreAsync(email string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		evCh, err := d.RestoreAutomaticallyDeletedStories(ctx, email)
+		if err != nil {
+			log.Printf("restore: start error for %s: %v", email, err)
+			return
+		}
+		for ev := range evCh {
+			if ev.Err != nil {
+				log.Printf("restore: story %s failed: %v", ev.StoryID, ev.Err)
+			} else {
+				log.Printf("restore: story %s (%d/%d) OK", ev.StoryID, ev.Index+1, ev.Total)
+			}
+		}
+	}()
+}
 
-// 		for _, item := range page.Items {
-// 			_, err := d.DynamoClient.PutItem(context.TODO(), &dynamodb.PutItemInput{
-// 				TableName: &destTableName,
-// 				Item:      item,
-// 			})
+func (d *DAO) RestoreAutomaticallyDeletedStories(ctx context.Context, email string) (<-chan RestoreStoryEvent, error) {
+	out, err := d.DynamoClient.Scan(ctx, &dynamodb.ScanInput{TableName: aws.String("stories" + GetTableSuffix()), FilterExpression: aws.String("author=:eml AND attribute_exists(deleted_at) AND automated_deletion=:a"), ExpressionAttributeValues: map[string]types.AttributeValue{":eml": &types.AttributeValueMemberS{Value: email}, ":a": &types.AttributeValueMemberBOOL{Value: true}}})
+	if err != nil {
+		return nil, err
+	}
+	var stories []models.Story
+	if err = attributevalue.UnmarshalListOfMaps(out.Items, &stories); err != nil {
+		return nil, err
+	}
+	ch := make(chan RestoreStoryEvent, 8) // small buffer helps if receiver does light work
+	total := len(stories)
+	go func() {
+		defer close(ch)
+		for i, story := range stories {
+			story.Inactive = true
+			_, err := d.EditStory(email, story)
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			log.Println("Starting restore on story", story.Title)
+			err = d.restoreOneStory(email, story)
+			ev := RestoreStoryEvent{Index: i, Total: total, StoryID: story.ID, Err: err}
+			select {
+			case ch <- ev:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch, nil
+}
 
-// 			if err != nil {
-// 				return err
-// 			}
-// 		}
-// 	}
-// 	return nil
-// }
+func (d *DAO) ensureBlocksTableFromBackup(
+	ctx context.Context,
+	backupARN, tableName, chapterName string,
+) error {
+	// 1) If table exists, wait for ACTIVE and return
+	_, err := d.DynamoClient.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if err == nil {
+		log.Println("waiting for table status")
+		return waitForTableStatus(ctx, d.DynamoClient, tableName, chapterName, "ACTIVE", 10*time.Minute)
+	}
+	if !isResourceNotFound(err) && err != nil {
+		return err
+	}
 
-func (d *DAO) RestoreAutomaticallyDeletedStories(email string) error {
-	out, err := d.DynamoClient.Scan(context.TODO(), &dynamodb.ScanInput{
-		TableName:        aws.String("stories"),
-		FilterExpression: aws.String("author=:eml AND attribute_exists(deleted_at) AND automated_deletion=:a"),
+	// 2) Not found → try to restore
+	_, err = d.DynamoClient.RestoreTableFromBackup(ctx, &dynamodb.RestoreTableFromBackupInput{
+		BackupArn:       aws.String(backupARN),
+		TargetTableName: aws.String(tableName),
+	})
+	if err != nil {
+		// If another attempt already created/is creating it, just wait
+		if !(isTableInUse(err) || isTableAlreadyExists(err)) {
+			return err
+		}
+	}
+
+	// 3) Either we kicked it off or someone else did; wait until ACTIVE
+	return waitForTableStatus(ctx, d.DynamoClient, tableName, chapterName, "ACTIVE", 10*time.Minute)
+}
+
+func isTableAlreadyExists(err error) bool {
+	var op *smithy.OperationError
+	if errors.As(err, &op) {
+		var exists *types.TableAlreadyExistsException
+		return errors.As(op.Unwrap(), &exists)
+	}
+	return false
+}
+
+func (d *DAO) restoreOneStory(email string, story models.Story) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Minute)
+	defer cancel()
+	chapterScanInput := &dynamodb.ScanInput{
+		TableName:        aws.String("chapters" + GetTableSuffix()),
+		FilterExpression: aws.String("attribute_exists(deleted_at) AND story_id = :sid AND attribute_exists(bup_arn)"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":sid": &types.AttributeValueMemberS{Value: story.ID},
+		},
+		Select: types.SelectAllAttributes,
+	}
+	chapterOut, err := d.DynamoClient.Scan(ctx, chapterScanInput)
+	if err != nil {
+		return err
+	}
+	var chapters []models.Chapter
+	if err = attributevalue.UnmarshalListOfMaps(chapterOut.Items, &chapters); err != nil {
+		return err
+	}
+	for _, chapter := range chapters {
+		if len(chapter.BackupARN) == 0 {
+			continue
+		}
+		oldTableName := story.ID + "_" + chapter.ID + "_blocks" + GetTableSuffix()
+		if len(chapter.BackupARN) > 0 {
+			if err := d.ensureBlocksTableFromBackup(ctx, chapter.BackupARN, oldTableName, chapter.Title); err != nil {
+				return err // only real errors bubble up; races are absorbed
+			}
+		} else {
+			fmt.Printf("no backup arn for chapter: %s\n", chapter.ID)
+		}
+
+		chapterUpdateInput := &dynamodb.UpdateItemInput{
+			TableName: aws.String("chapters" + GetTableSuffix()),
+			Key: map[string]types.AttributeValue{
+				"chapter_id": &types.AttributeValueMemberS{Value: chapter.ID},
+				"story_id":   &types.AttributeValueMemberS{Value: story.ID},
+			},
+			UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
+		}
+		_, err = d.DynamoClient.UpdateItem(ctx, chapterUpdateInput)
+		if err != nil {
+			fmt.Printf("failed to update deletion flag for chapter: %s\n", chapter.ID)
+		}
+	}
+	storyKey := map[string]types.AttributeValue{
+		"story_id": &types.AttributeValueMemberS{Value: story.ID},
+		"author":   &types.AttributeValueMemberS{Value: email},
+	}
+	finCtx, finCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer finCancel()
+	storyUpdateInput := &dynamodb.UpdateItemInput{
+		TableName:        aws.String("stories" + GetTableSuffix()),
+		Key:              storyKey,
+		UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
+	}
+	_, err = d.DynamoClient.UpdateItem(finCtx, storyUpdateInput)
+	if err != nil {
+		return err
+	}
+
+	storyOrSeriesID := story.ID
+	if story.SeriesID != "" {
+		storyOrSeriesID = story.SeriesID
+		seriesKey := map[string]types.AttributeValue{
+			"series_id": &types.AttributeValueMemberS{Value: story.SeriesID},
+			"author":    &types.AttributeValueMemberS{Value: email},
+		}
+		seriesUpdateInput := &dynamodb.UpdateItemInput{
+			TableName:        aws.String("series" + GetTableSuffix()),
+			Key:              seriesKey,
+			UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
+		}
+		_, err = d.DynamoClient.UpdateItem(finCtx, seriesUpdateInput)
+		if err != nil {
+			return err
+		}
+	}
+
+	associationScanInput := &dynamodb.ScanInput{
+		TableName:        aws.String("associations" + GetTableSuffix()),
+		FilterExpression: aws.String("author = :eml AND attribute_exists(deleted_at) AND automated_deletion = :a AND story_or_series_id = :sid"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":eml": &types.AttributeValueMemberS{Value: email},
 			":a":   &types.AttributeValueMemberBOOL{Value: true},
+			":sid": &types.AttributeValueMemberS{Value: storyOrSeriesID},
 		},
-	})
+		Select: types.SelectAllAttributes,
+	}
+	associationOut, err := d.DynamoClient.Scan(finCtx, associationScanInput)
 	if err != nil {
 		return err
 	}
 
-	var stories []models.Story
-	if err = attributevalue.UnmarshalListOfMaps(out.Items, &stories); err != nil {
-		return err
-	}
-	for _, story := range stories {
-		chapterScanInput := &dynamodb.ScanInput{
-			TableName:        aws.String("chapters"),
-			FilterExpression: aws.String("attribute_exists(deleted_at) AND story_id = :sid AND attribute_exists(bup_arn)"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":sid": &types.AttributeValueMemberS{Value: story.ID},
-			},
-			Select: types.SelectAllAttributes,
+	for _, item := range associationOut.Items {
+		assocID := item["association_id"].(*types.AttributeValueMemberS).Value
+		associationKey := map[string]types.AttributeValue{
+			"association_id":     &types.AttributeValueMemberS{Value: assocID},
+			"story_or_series_id": &types.AttributeValueMemberS{Value: storyOrSeriesID},
 		}
-		chapterOut, err := d.DynamoClient.Scan(context.TODO(), chapterScanInput)
-		if err != nil {
-			return err
-		}
-		var chapters []models.Chapter
-		if err = attributevalue.UnmarshalListOfMaps(chapterOut.Items, &chapters); err != nil {
-			return err
-		}
-		for _, chapter := range chapters {
-			if len(chapter.BackupARN) == 0 {
-				continue
-			}
-			oldTableName := story.ID + "_" + chapter.ID + "_blocks"
-			_, err := d.DynamoClient.RestoreTableFromBackup(context.TODO(), &dynamodb.RestoreTableFromBackupInput{
-				BackupArn:       aws.String(chapter.BackupARN),
-				TargetTableName: aws.String(oldTableName),
-			})
-			if err != nil {
-				return err
-			}
-			chapterKey := map[string]types.AttributeValue{
-				"chapter_id": &types.AttributeValueMemberS{Value: chapter.ID},
-				"story_id":   &types.AttributeValueMemberS{Value: story.ID},
-			}
-			chapterUpdateInput := &dynamodb.UpdateItemInput{
-				TableName:        aws.String("chapters"),
-				Key:              chapterKey,
-				UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
-			}
-			_, err = d.DynamoClient.UpdateItem(context.Background(), chapterUpdateInput)
-			if err != nil {
-				return err
-			}
-		}
-		storyKey := map[string]types.AttributeValue{
-			"story_id": &types.AttributeValueMemberS{Value: story.ID},
-			"author":   &types.AttributeValueMemberS{Value: email},
-		}
-		storyUpdateInput := &dynamodb.UpdateItemInput{
-			TableName:        aws.String("stories"),
-			Key:              storyKey,
+		associationUpdateInput := &dynamodb.UpdateItemInput{
+			TableName:        aws.String("associations" + GetTableSuffix()),
+			Key:              associationKey,
 			UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
 		}
-		_, err = d.DynamoClient.UpdateItem(context.Background(), storyUpdateInput)
+		_, err = d.DynamoClient.UpdateItem(finCtx, associationUpdateInput)
 		if err != nil {
 			return err
 		}
 
-		storyOrSeriesID := story.ID
-		if story.SeriesID != "" {
-			storyOrSeriesID = story.SeriesID
-			seriesKey := map[string]types.AttributeValue{
-				"series_id": &types.AttributeValueMemberS{Value: story.SeriesID},
-				"author":    &types.AttributeValueMemberS{Value: email},
-			}
-			seriesUpdateInput := &dynamodb.UpdateItemInput{
-				TableName:        aws.String("series"),
-				Key:              seriesKey,
-				UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
-			}
-			_, err = d.DynamoClient.UpdateItem(context.Background(), seriesUpdateInput)
-			if err != nil {
-				return err
-			}
+		associationDetailsUpdateInput := &dynamodb.UpdateItemInput{
+			TableName:        aws.String("association_details" + GetTableSuffix()),
+			Key:              associationKey,
+			UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
 		}
-
-		associationScanInput := &dynamodb.ScanInput{
-			TableName:        aws.String("associations"),
-			FilterExpression: aws.String("author = :eml AND attribute_exists(deleted_at) AND automated_deletion = :a AND story_or_series_id = :sid"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":eml": &types.AttributeValueMemberS{Value: email},
-				":a":   &types.AttributeValueMemberBOOL{Value: true},
-				":sid": &types.AttributeValueMemberS{Value: storyOrSeriesID},
-			},
-			Select: types.SelectAllAttributes,
-		}
-		associationOut, err := d.DynamoClient.Scan(context.TODO(), associationScanInput)
+		_, err = d.DynamoClient.UpdateItem(finCtx, associationDetailsUpdateInput)
 		if err != nil {
 			return err
-		}
-
-		for _, item := range associationOut.Items {
-			assocID := item["association_id"].(*types.AttributeValueMemberS).Value
-			associationKey := map[string]types.AttributeValue{
-				"association_id":     &types.AttributeValueMemberS{Value: assocID},
-				"story_or_series_id": &types.AttributeValueMemberS{Value: storyOrSeriesID},
-			}
-			associationUpdateInput := &dynamodb.UpdateItemInput{
-				TableName:        aws.String("associations"),
-				Key:              associationKey,
-				UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
-			}
-			_, err = d.DynamoClient.UpdateItem(context.Background(), associationUpdateInput)
-			if err != nil {
-				return err
-			}
-
-			associationDetailsUpdateInput := &dynamodb.UpdateItemInput{
-				TableName:        aws.String("association_details"),
-				Key:              associationKey,
-				UpdateExpression: aws.String("REMOVE deleted_at, automated_deletion"),
-			}
-			_, err = d.DynamoClient.UpdateItem(context.Background(), associationDetailsUpdateInput)
-			if err != nil {
-				return err
-			}
 		}
 	}
 
 	return nil
+}
+
+func (d *DAO) CheckTableStatus(tableName string) (string, error) {
+	resp, err := d.DynamoClient.DescribeTable(context.TODO(), &dynamodb.DescribeTableInput{TableName: aws.String(tableName)})
+	if err != nil {
+		return "", err
+	}
+	return string(resp.Table.TableStatus), nil
 }
 
 func (d *DAO) SoftDeleteStory(email, storyID string, automated bool) error {
@@ -673,7 +740,12 @@ func (d *DAO) SoftDeleteStory(email, storyID string, automated bool) error {
 		if !ok {
 			return errors.New("chapter_id missing or not a string")
 		}
+		chapterTitleAttr, ok := item["chapter_title"].(*types.AttributeValueMemberS)
+		if !ok {
+			return errors.New("chapter_title missing or not a string")
+		}
 		chapterID := chapterIDAttr.Value
+		chapterTitle := chapterTitleAttr.Value
 		oldTableName := storyID + "_" + chapterID + "_blocks" + GetTableSuffix()
 
 		// Create the BackupTableInput
@@ -706,14 +778,8 @@ func (d *DAO) SoftDeleteStory(email, storyID string, automated bool) error {
 			if err != nil {
 				return err
 			}
-			chapterStatus, err := d.CheckTableStatus(oldTableName)
-			if err != nil {
-				return err
-			}
-			if chapterStatus != "ACTIVE" {
-				time.Sleep(1 * time.Second)
-				go d.SoftDeleteStory(email, storyID, automated)
-				return nil
+			if err := waitForTableStatus(context.TODO(), d.DynamoClient, oldTableName, chapterTitle, "ACTIVE", 5*time.Minute); err != nil {
+				return fmt.Errorf("chapter blocks table %s not ACTIVE before delete: %w", oldTableName, err)
 			}
 			deleteTableInput := &dynamodb.DeleteTableInput{
 				TableName: aws.String(oldTableName),
@@ -1071,4 +1137,52 @@ func (d *DAO) AddStripeData(email, subscriptionID, customerID *string) error {
 		return err
 	}
 	return nil
+}
+
+func (d *DAO) verifyStripeSubscription(subID, customerID string) (SubscriptionStatus, error) {
+
+	normalize := func(s string) string { return strings.TrimSpace(s) }
+
+	subID = normalize(subID)
+	customerID = normalize(customerID)
+
+	// 1) Try direct GET if we have a candidate ID
+	if subID != "" {
+		s, err := stripesub.Get(subID, nil)
+		if err == nil {
+			return toStatus(s, true), nil
+		}
+		// Gracefully handle 404 resource_missing
+		if se, ok := err.(*stripe.Error); ok && se.Code == stripe.ErrorCodeResourceMissing && se.Param == "id" {
+			// fall through to customer lookup if we can
+		} else {
+			// other errors (auth, network, etc.) bubble up
+			return SubscriptionStatus{}, err
+		}
+	}
+
+	// 2) If we know the customer, try to find their most recent subscription
+	if customerID != "" {
+		lp := &stripe.SubscriptionListParams{
+			Customer: stripe.String(customerID),
+			Status:   stripe.String("all"),
+		}
+		it := stripesub.List(lp)
+		var newest *stripe.Subscription
+		for it.Next() {
+			s := it.Subscription()
+			if newest == nil || s.Created > newest.Created {
+				newest = s
+			}
+		}
+		if err := it.Err(); err != nil {
+			return SubscriptionStatus{}, err
+		}
+		if newest != nil {
+			return toStatus(newest, true), nil
+		}
+	}
+
+	// 3) Nothing found
+	return SubscriptionStatus{Found: false, Active: false, Status: "not_found"}, nil
 }

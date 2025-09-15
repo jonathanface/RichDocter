@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,7 +21,6 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/stripe/stripe-go/v72/sub"
 )
 
 func UpdateUserEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -53,52 +51,6 @@ func UpdateUserEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(user.SubscriptionID) == 0 || len(user.CustomerID) == 0 {
-		// customer data somehow got deleted so the user should be redirected to the signup page
-		RespondWithError(w, http.StatusSeeOther, "new subscription required")
-		return
-	}
-
-	if !user.Renewing && passedUser.Renewing {
-		subscription, err := sub.Get(user.SubscriptionID, nil)
-		if err != nil {
-			RespondWithError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if len(subscription.Items.Data) == 0 {
-			RespondWithError(w, http.StatusInternalServerError, "error retrieving subscription details")
-			return
-		}
-		priceID := subscription.Items.Data[0].Price.ID
-		methods, err := getPaymentMethodsForCustomer(user.CustomerID)
-		if err != nil {
-			RespondWithError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		// TODO provide a way to update payment method
-		var defaultPaymentID string
-		for _, method := range methods {
-			if method.IsDefault {
-				defaultPaymentID = method.Id
-				break
-			}
-		}
-		sub, err := updateSubscription(user.SubscriptionID, defaultPaymentID, priceID)
-		if err != nil {
-			RespondWithError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		user.SubscriptionID = sub.ID
-		user.ExpiresAt = strconv.FormatInt(sub.CancelAt, 10)
-	} else if user.Renewing && !passedUser.Renewing {
-		sub, err := cancelSubscription(user.SubscriptionID)
-		if err != nil {
-			RespondWithError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		user.ExpiresAt = strconv.FormatInt(sub.CancelAt, 10)
-	}
-	user.Renewing = passedUser.Renewing
 	if err = dao.UpdateUser(*user); err != nil {
 		if opErr, ok := err.(*smithy.OperationError); ok {
 			awsResponse := processAWSError(opErr)
@@ -617,12 +569,12 @@ func UpdateOutlineEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = dao.UpdateOutline(updatedOutline)
+	newOutline, err := dao.UpdateOutline(updatedOutline)
 	if err != nil {
 		RespondWithError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	RespondWithJson(w, http.StatusOK, updatedOutline)
+	RespondWithJson(w, http.StatusOK, newOutline)
 }
 
 func EditStorySettingsEndPoint(w http.ResponseWriter, r *http.Request) {
@@ -1002,12 +954,15 @@ func ExportStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 	var generatedFile string
 	filetype := "application/pdf"
 
-	switch typeOf {
-	case "pdf":
+	switch models.ExportFormat(typeOf) {
+	case models.FormatPDF:
 		generatedFile, err = converters.HTMLToPDF(export)
-	case "docx":
+	case models.FormatDOCX:
 		filetype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 		generatedFile, err = converters.HTMLToDOCX(export)
+	case models.FormatEPUB:
+		filetype = "application/epub+zip"
+		generatedFile, err = converters.HTMLToEPUB(export)
 	}
 	if err != nil {
 		RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -1026,9 +981,6 @@ func ExportStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 		Key:         aws.String(generatedFile),
 		Body:        reader,
 		ContentType: aws.String(filetype),
-		/*		Metadata: map[string]string{
-				"Content-Disposition": "attachment; filename=" + generatedFile,
-			},*/
 	}); err != nil {
 		RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return

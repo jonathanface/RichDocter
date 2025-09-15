@@ -12,34 +12,32 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/joho/godotenv"
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
 	"github.com/markbates/goth/providers/amazon"
 	"github.com/markbates/goth/providers/google"
-	"github.com/markbates/goth/providers/microsoftonline"
 )
 
-func init() {
-	currentMode := models.AppMode(strings.ToLower(os.Getenv("MODE")))
-	if currentMode != models.ModeProduction && currentMode != models.ModeStaging {
-		if err := godotenv.Load(); err != nil {
-			log.Println("Error loading .env file for the auth service")
-		}
-	}
+const (
+	oneDay = 24 * time.Hour
+)
+
+func New(options OauthOptions) {
+	gothic.Store = sessions.Store
+	goth.UseProviders(
+		google.New(options.GoogleId, options.GoogleSecret, options.GoogleUrl),
+		amazon.New(options.AmazonId, options.AmazonSecret, options.AmazonUrl),
+	)
 }
 
-func New() {
-	goth.UseProviders(
-		google.New(os.Getenv("GOOGLE_OAUTH_CLIENT_ID"), os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"), os.Getenv("GOOGLE_OAUTH_REDIRECT_URL")),
-		amazon.New(os.Getenv("AMAZON_OAUTH_CLIENT_ID"), os.Getenv("AMAZON_OAUTH_CLIENT_SECRET"), os.Getenv("AMAZON_OAUTH_REDIRECT_URL")),
-		microsoftonline.New(os.Getenv("MSN_OAUTH_CLIENT_ID"), os.Getenv("MSN_OAUTH_CLIENT_SECRET"), os.Getenv("MSN_OAUTH_REDIRECT_URL")),
-	)
+func CallbackHandler(options OauthOptions) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		callbackWithOptions(w, r, options)
+	}
 }
 
 func determineName(info goth.User) string {
@@ -56,12 +54,35 @@ func determineName(info goth.User) string {
 	return name
 }
 
-func Callback(w http.ResponseWriter, r *http.Request) {
-	var (
-		provider string
-		err      error
-	)
-	if provider, err = url.PathUnescape(mux.Vars(r)["provider"]); err != nil {
+func safeRedirect(dest, defaultURL string, allowed []string) string {
+	if dest == "" {
+		return defaultURL
+	}
+	if strings.HasPrefix(dest, "/") {
+		base, _ := url.Parse(defaultURL)
+		rel, _ := url.Parse(dest)
+		base.Path = rel.Path
+		base.RawQuery = rel.RawQuery
+		base.Fragment = rel.Fragment
+		return base.String()
+	}
+	u, err := url.Parse(dest)
+	if err != nil || u.Host == "" {
+		return defaultURL
+	}
+	for _, origin := range allowed {
+		a, _ := url.Parse(origin)
+		if strings.EqualFold(u.Scheme, a.Scheme) && strings.EqualFold(u.Host, a.Host) {
+			// ok: preserve path/query from dest
+			return u.String()
+		}
+	}
+	return defaultURL
+}
+
+func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOptions) {
+	provider, err := url.PathUnescape(mux.Vars(r)["provider"])
+	if err != nil {
 		api.RespondWithError(w, http.StatusInternalServerError, "Error parsing provider")
 		return
 	}
@@ -70,98 +91,135 @@ func Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := sessions.Get(r, "login_referral")
-	if err != nil {
-		api.RespondWithError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	user, err := gothic.CompleteUserAuth(w, r)
 	if err != nil {
 		api.RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	info := models.UserInfo{}
-	info.AuthType = mux.Vars(r)["provider"]
-	info.Email = user.Email
-	info.AuthType = mux.Vars(r)["provider"]
-	info.FirstName = determineName(user)
-	var (
-		dao         daos.DaoInterface
-		ok          bool
-		fullDetails *models.UserInfo
-	)
-	if dao, ok = r.Context().Value(ctxkey.DAO).(daos.DaoInterface); !ok {
+
+	info := models.UserInfo{
+		AuthType:  mux.Vars(r)["provider"],
+		Email:     user.Email,
+		FirstName: determineName(user),
+	}
+
+	dao, ok := r.Context().Value(ctxkey.DAO).(daos.DaoInterface)
+	if !ok {
 		api.RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
 		return
 	}
-	fullDetails, err = dao.GetUserDetails(info.Email)
+	userDetails, err := dao.GetUserDetails(info.Email)
 	if err != nil {
-		// hacky
 		if err == sql.ErrNoRows {
-			err = dao.CreateUser(info.Email)
-			if err != nil {
+			if userDetails, err = dao.CreateUser(info.Email); err != nil {
 				api.RespondWithError(w, http.StatusInternalServerError, err.Error())
+				return
 			}
 		} else {
 			api.RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-
-	} else {
-		info.CustomerID = fullDetails.CustomerID
-		info.SubscriptionID = fullDetails.SubscriptionID
 	}
+
 	toJSON, err := json.Marshal(info)
 	if err != nil {
 		api.RespondWithError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	session, _ := sessions.Get(r, "token")
-	session.Values["token_data"] = toJSON
-	session.Options.MaxAge = int(user.ExpiresAt.UTC().UnixNano() - time.Now().UTC().UnixNano())
-	if err = session.Save(r, w); err != nil {
+
+	tokenSess, err := sessions.Get(r, "token")
+	if err != nil {
+		api.RespondWithError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	tokenSess.Values["token_data"] = toJSON
+
+	opts := sessions.OptionsFor(r)
+	opts.MaxAge = int(oneDay.Seconds())
+	tokenSess.Options = opts
+
+	if err := tokenSess.Save(r, w); err != nil {
 		api.RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if sess.IsNew {
-		http.Redirect(w, r, os.Getenv("ROOT_URL"), http.StatusTemporaryRedirect)
-		return
+
+	frontend := options.FrontEndURL
+	allowedOrigins := []string{options.FrontEndURL}
+	next := frontend
+	if rdx := r.URL.Query().Get("next"); rdx != "" {
+		next = safeRedirect(rdx, frontend, allowedOrigins)
+	} else if loginSess, _ := sessions.Get(r, "login_referral"); loginSess != nil && !loginSess.IsNew {
+		if ref, _ := loginSess.Values["referrer"].(string); ref != "" {
+			next = safeRedirect(ref, frontend, allowedOrigins)
+		}
+		// Clear the one-time referral cookie now that we’ve used it
+		_ = sessions.Delete(w, r, "login_referral")
 	}
-	http.Redirect(w, r, sess.Values["referrer"].(string), http.StatusTemporaryRedirect)
+
+	updated, err := dao.IsUserSubscribed(*userDetails)
+	log.Println("logincallback - usersubbed", updated, err)
+	if err == nil {
+		// persist Subscriber flip only when changed
+		if userDetails.Subscriber != updated.Subscriber {
+			if err := dao.UpdateUser(*updated); err != nil {
+				api.RespondWithError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		// Append UX query flags and return immediately after redirect
+		if updated.NotifyExpired {
+			http.Redirect(w, r, next+"?expired=true", http.StatusTemporaryRedirect)
+			return
+		}
+		if updated.NotifyRestored {
+			http.Redirect(w, r, next+"?restored=true", http.StatusTemporaryRedirect)
+			return
+		}
+	}
+
+	http.Redirect(w, r, next, http.StatusTemporaryRedirect)
 }
 
-func Login(w http.ResponseWriter, r *http.Request) {
-	session, err := sessions.Get(r, "login_referral")
+func LoginHandler(options OauthOptions) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		loginWithOptions(w, r, options)
+	}
+}
+
+func loginWithOptions(w http.ResponseWriter, r *http.Request, options OauthOptions) {
+	sess, err := sessions.Get(r, "login_referral")
 	if err != nil {
 		fmt.Printf("Session Error: %s\n", err.Error())
 	}
-	session.Options.Path = "/auth"
-	session.Options.MaxAge = int(5 * time.Minute)
-	session.Values["referrer"] = r.Header.Get("Referer")
-	if err = session.Save(r, w); err != nil {
+
+	// Use shared options, then set TTL
+	opts := sessions.OptionsFor(r)
+	opts.MaxAge = int((5 * time.Minute).Seconds())
+	sess.Options = opts
+
+	next := r.URL.Query().Get("next")
+	if next == "" {
+		next = options.FrontEndURL
+	}
+	sess.Values["referrer"] = next
+
+	if err = sess.Save(r, w); err != nil {
 		api.RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
 	if _, err := gothic.CompleteUserAuth(w, r); err != nil {
 		gothic.BeginAuthHandler(w, r)
 	}
 }
 
 func Logout(w http.ResponseWriter, r *http.Request) {
-	session, err := sessions.Get(r, "token")
-	if err != nil {
+	if err := sessions.Delete(w, r, "token"); err != nil {
 		api.RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	session.Options.MaxAge = -1
-	if err = session.Save(r, w); err != nil {
-		api.RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	err = gothic.Logout(w, r)
-	if err != nil {
-		api.RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	_ = sessions.Delete(w, r, "login_referral") // clear if exists
+	_ = gothic.Logout(w, r)
+
 	api.RespondWithJson(w, http.StatusOK, nil)
 }

@@ -1,6 +1,7 @@
 package daos
 
 import (
+	"RichDocter/models"
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -8,9 +9,36 @@ import (
 
 type MockDAO struct {
 	*DAO
+	MockGetUserDetails func(email string) (*models.UserInfo, error)
+
+	// billing
+	MockGetSubscription    func(email string) (*models.Subscription, error)
+	MockUpdateSubscription func(s models.Subscription) error
 }
 
 var _ DaoInterface = (*MockDAO)(nil)
+
+func (m *MockDAO) GetUserDetails(email string) (*models.UserInfo, error) {
+	if m.MockGetUserDetails != nil {
+		return m.MockGetUserDetails(email)
+	}
+	// sensible default for tests:
+	return &models.UserInfo{Email: email}, nil
+}
+
+func (m *MockDAO) GetSubscription(email string) (*models.Subscription, error) {
+	if m.MockGetSubscription != nil {
+		return m.MockGetSubscription(email)
+	}
+	return &models.Subscription{}, nil
+}
+
+func (m *MockDAO) UpdateSubscription(sub models.Subscription) error {
+	if m.MockUpdateSubscription != nil {
+		return m.MockUpdateSubscription(sub)
+	}
+	return nil
+}
 
 type MockDynamoClient struct {
 	MockDeleteItem              func(ctx context.Context, input *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)

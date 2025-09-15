@@ -72,18 +72,20 @@ type ChapterWithContents struct {
 }
 
 type Story struct {
-	ID          string            `json:"story_id" dynamodbav:"story_id"`
-	CreatedAt   int               `json:"created_at" dynamodbav:"created_at"`
-	Title       string            `json:"title" dynamodbav:"title"`
-	Description string            `json:"description" dynamodbav:"description"`
-	SeriesID    string            `json:"series_id" dynamodbav:"series_id"`
-	Chapters    []Chapter         `json:"chapters"`
-	Outline     *[]OutlineSection `json:"outline"`
-	Place       int               `json:"place"`
-	ImageURL    string            `json:"image_url" dynamodbav:"image_url"`
+	ID          string           `json:"story_id" dynamodbav:"story_id"`
+	CreatedAt   int              `json:"created_at" dynamodbav:"created_at"`
+	Title       string           `json:"title" dynamodbav:"title"`
+	Description string           `json:"description" dynamodbav:"description"`
+	SeriesID    string           `json:"series_id" dynamodbav:"series_id"`
+	Chapters    []Chapter        `json:"chapters"`
+	Outline     *OutlineResponse `json:"outline"`
+	Place       int              `json:"place"`
+	ImageURL    string           `json:"image_url" dynamodbav:"image_url"`
+	Inactive    bool             `json:"inactive" dynamodbav:"inactive"`
 }
 type StorySettings struct {
 	Spellcheck bool `json:"spellcheck" dynamodbav:"spellcheck"`
+	Autotab    bool `json:"autotab" dynamodbav:"autotab"`
 }
 
 type BlocksData struct {
@@ -110,12 +112,18 @@ type UserInfo struct {
 	Email          string `json:"email" dynamodbav:"email"`
 	FirstName      string `json:"first_name" dynamodbav:"first_name"`
 	Admin          bool   `json:"admin" dynamodbav:"admin"`
-	SubscriptionID string `json:"subscription_id" dynamodbav:"subscription_id"`
-	CustomerID     string `json:"customer_id" dynamodbav:"customer_id"`
-	Expired        bool   `json:"expired" dynamodbav:"expired"`
-	Renewing       bool   `json:"renewing" dynamodbav:"renewing"`
 	AuthType       string `json:"auth_type"`
-	ExpiresAt      string `json:"expires_at" dynamodbav:"expires_at"`
+	Subscriber     bool   `json:"subscriber" dynamodbav:"subscriber"`
+	NotifyExpired  bool   `json:"notify_expired,omitempty"`
+	NotifyRestored bool   `json:"notify_restored,omitempty"`
+}
+
+type Subscription struct {
+	Email                  string    `json:"email" dynamodbav:"email"`
+	SubscriptionID         string    `json:"subscription_id" dynamodbav:"subscription_id"`
+	CustomerID             string    `json:"customer_id" dynamodbav:"customer_id"`
+	CurrentSubscriptionEnd time.Time `dynamodbav:"current_subscription_end"`
+	LastSubCheck           time.Time `dynamodbav:"last_sub_check"`
 }
 
 type Answer struct {
@@ -135,31 +143,55 @@ type HTMLData struct {
 	HTML    string `json:"html"`
 }
 
-type DocumentExportRequest struct {
-	StoryID       string     `json:"story_id"`
-	HtmlByChapter []HTMLData `json:"html_by_chapter"`
-	Type          string     `json:"type"`
-	Title         string     `json:"title"`
-}
-
-type OutlineType string
+type ExportFormat string
 
 const (
-	ThreeAct    OutlineType = "threeAct"
-	FiveAct     OutlineType = "fiveAct"
-	HeroJourney OutlineType = "heroJourney"
+	FormatPDF  ExportFormat = "pdf"
+	FormatDOCX ExportFormat = "docx"
+	FormatEPUB ExportFormat = "epub"
+)
+
+type DocumentExportRequest struct {
+	StoryID       string       `json:"story_id"`
+	HtmlByChapter []HTMLData   `json:"html_by_chapter"`
+	Type          ExportFormat `json:"type"`
+	Title         string       `json:"title"`
+	Author        *string      `json:"author"`
+	CoverImage    *string      `json:"cover_image"`
+}
+
+type OutlineTemplate string
+type OutlineSectionStatus string
+
+const (
+	ThreeAct    OutlineTemplate      = "threeAct"
+	FiveAct     OutlineTemplate      = "fiveAct"
+	HeroJourney OutlineTemplate      = "heroJourney"
+	Draft       OutlineSectionStatus = "Draft"
+	Revising    OutlineSectionStatus = "Revising"
+	None        OutlineSectionStatus = "None"
 )
 
 type OutlineSection struct {
-	Header      string   `json:"header"`
-	Description string   `json:"description"`
-	Text        string   `json:"text"`
-	Place       int      `json:"place"`
-	Chapters    []string `json:"chapters"`
+	Header      string               `json:"header"`
+	Description string               `json:"description"`
+	Text        string               `json:"text"`
+	Place       int                  `json:"place"`
+	Chapters    []string             `json:"chapters"`
+	Status      OutlineSectionStatus `json:"status"`
 }
 
 type OutlineRequest struct {
-	StoryID  string           `json:"storyID"`
-	Type     OutlineType      `json:"type"`
-	Sections []OutlineSection `json:"sections"`
+	StoryID   string           `json:"storyID"`
+	Template  OutlineTemplate  `json:"outlineTemplate"`
+	Sections  []OutlineSection `json:"sections"`
+	Backstory string           `json:"backstory"`
+}
+
+type OutlineResponse struct {
+	StoryID    string           `json:"storyID"`
+	Template   OutlineTemplate  `json:"outlineTemplate"`
+	Sections   []OutlineSection `json:"sections"`
+	Unassigned []string         `json:"unassigned"`
+	Backstory  string           `json:"backstory"`
 }

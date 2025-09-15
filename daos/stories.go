@@ -36,7 +36,10 @@ func (d *DAO) GetAllStories(email string) (stories []*models.Story, err error) {
 	// Sort stories by the created_at timestamp
 
 	sort.Slice(stories, func(i, j int) bool {
-		return stories[i].CreatedAt < stories[j].CreatedAt
+		if stories[i].CreatedAt == stories[j].CreatedAt {
+			return stories[i].ID < stories[j].ID // tie-breaker
+		}
+		return stories[i].CreatedAt < stories[j].CreatedAt // oldest first
 	})
 
 	for i := 0; i < len(stories); i++ {
@@ -163,7 +166,7 @@ func (d *DAO) GetStoryByID(email, storyID string) (story *models.Story, err erro
 		}
 		storyFromMap[0].Chapters = append(storyFromMap[0].Chapters, chapter)
 	}
-	storyFromMap[0].Outline, err = d.GetOutlineByStoryID(storyID)
+	storyFromMap[0].Outline, err = d.GetOutlineByStoryID(storyID, storyFromMap[0].Chapters)
 	if err != nil && err != sql.ErrNoRows {
 		return &storyFromMap[0], err
 	}
@@ -398,11 +401,12 @@ func (d *DAO) UpdateStorySettings(email, storyID string, settings models.StorySe
 	now := strconv.FormatInt(time.Now().Unix(), 10)
 
 	expressionValues := map[string]types.AttributeValue{
+		":autotab":    &types.AttributeValueMemberBOOL{Value: settings.Autotab},
 		":spellcheck": &types.AttributeValueMemberBOOL{Value: settings.Spellcheck},
 		":updated_at": &types.AttributeValueMemberN{Value: now},
 	}
 
-	updateExpression := "SET #spellcheck = :spellcheck, #updated_at = :updated_at"
+	updateExpression := "SET #spellcheck = :spellcheck, autotab=:autotab, #updated_at = :updated_at"
 	expressionAttributeNames := map[string]string{
 		"#spellcheck": "spellcheck",
 		"#updated_at": "updated_at",

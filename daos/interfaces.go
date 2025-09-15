@@ -2,6 +2,7 @@ package daos
 
 import (
 	"RichDocter/models"
+	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -23,12 +24,18 @@ type DaoInterface interface {
 	GetSeriesVolumes(email string, seriesID string) ([]*models.Story, error)
 	GetUserDetails(email string) (*models.UserInfo, error)
 	GetChapterByID(chapterID string) (*models.Chapter, error)
-	GetOutlineByStoryID(storyID string) (*[]models.OutlineSection, error)
+	GetOutlineByStoryID(storyID string, chapters []models.Chapter) (*models.OutlineResponse, error)
+	GetChapterTableStatus(storyID, chapterID string) (bool, error)
+	GetSubscription(email string) (*models.Subscription, error)
+	GetEmailByCustomerId(customerID string) (string, error)
+	ensureBlocksTableFromBackup(ctx context.Context, backupARN, oldTableName, chapterName string) error
+	kickoffRestoreAsync(email string)
 
 	// PUTs
-	UpsertUser(email string) error
+	UpsertUser(email string) (*models.UserInfo, error)
 	UpdateUser(user models.UserInfo) error
-	RestoreAutomaticallyDeletedStories(email string) error
+	RestoreAutomaticallyDeletedStories(ctx context.Context, email string) (<-chan RestoreStoryEvent, error)
+	restoreOneStory(email string, story models.Story) error
 	ResetBlockOrder(storyID string, storyBlocks *models.StoryBlocks) error
 	WriteBlocks(storyID string, storyBlocks *models.StoryBlocks) error
 	WriteAssociations(email, storyOrSeriesID string, associations []*models.Association) error
@@ -40,12 +47,13 @@ type DaoInterface interface {
 	EditSeries(email string, series models.Series) (models.Series, error)
 	EditChapter(storyID string, chapter models.Chapter) (models.Chapter, error)
 	RemoveStoryFromSeries(email, storyID string, series models.Series) (models.Series, error)
-	UpdateOutline(outline models.OutlineRequest) error
+	UpdateOutline(outline models.OutlineRequest) (*models.OutlineResponse, error)
+	UpdateSubscription(subscription models.Subscription) error
 
 	// POSTs
 	CreateChapter(storyID string, chapter models.Chapter, email string) (models.Chapter, error)
 	CreateStory(email string, story models.Story, newSeriesTitle string) (storyID string, err error)
-	CreateUser(email string) error
+	CreateUser(email string) (*models.UserInfo, error)
 	CreateOutline(outline models.OutlineRequest) (*models.OutlineRequest, error)
 
 	// DELETEs
@@ -59,7 +67,8 @@ type DaoInterface interface {
 	// HELPERS
 	WasStoryDeleted(email string, storyID string) (bool, error)
 	IsStoryInASeries(email string, storyID string) (string, error)
-	IsUserSubscribed(email string) (string, error)
+	IsUserSubscribed(models.UserInfo) (*models.UserInfo, error)
+	verifyStripeSubscription(subID, customerID string) (SubscriptionStatus, error)
 	GetTotalCreatedStories(email string) (int, error)
 	CheckForSuspendedStories(email string) (bool, error)
 	CheckTableStatus(tableName string) (string, error)

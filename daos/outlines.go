@@ -5,15 +5,17 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (d *DAO) GetOutlineByStoryID(storyID string) (*[]models.OutlineSection, error) {
+func (d *DAO) GetOutlineByStoryID(storyID string, chapters []models.Chapter) (*models.OutlineResponse, error) {
 	tableName := "outlines" + GetTableSuffix()
 
 	// Define the query input
@@ -35,35 +37,64 @@ func (d *DAO) GetOutlineByStoryID(storyID string) (*[]models.OutlineSection, err
 	if len(result.Items) == 0 {
 		return nil, sql.ErrNoRows
 	}
-
 	// Parse the response into OutlineSection models
-	var outlineSections []models.OutlineSection
+	assigned := make(map[string]struct{}, 64)
+	var out models.OutlineResponse
+	out.StoryID = storyID
+
 	for _, item := range result.Items {
-		section := models.OutlineSection{}
+		if v, ok := item["backstory"]; ok {
+			var bs string
+			if err := attributevalue.Unmarshal(v, &bs); err != nil {
+				return nil, fmt.Errorf("unmarshal backstory: %w", err)
+			}
+			out.Backstory = bs
+		}
+		var s models.OutlineSection
 
 		if v, ok := item["place"].(*types.AttributeValueMemberN); ok {
-			placeInt, err := strconv.Atoi(v.Value)
+			n, err := strconv.Atoi(v.Value)
 			if err != nil {
-				return nil, fmt.Errorf("error converting place to int: %v", err)
+				return nil, fmt.Errorf("error converting place to int: %w", err)
 			}
-			section.Place = placeInt
+			s.Place = n
 		}
 		if v, ok := item["header"].(*types.AttributeValueMemberS); ok {
-			section.Header = v.Value
+			s.Header = v.Value
 		}
 		if v, ok := item["description"].(*types.AttributeValueMemberS); ok {
-			section.Description = v.Value
+			s.Description = v.Value
 		}
 		if v, ok := item["text"].(*types.AttributeValueMemberS); ok {
-			section.Text = v.Value
+			s.Text = v.Value
+		}
+		if v, ok := item["status"].(*types.AttributeValueMemberS); ok {
+			s.Status = models.OutlineSectionStatus(v.Value)
+		}
+		if out.Template == "" {
+			if v, ok := item["template"].(*types.AttributeValueMemberS); ok {
+				out.Template = models.OutlineTemplate(v.Value)
+			}
 		}
 		if v, ok := item["chapters"].(*types.AttributeValueMemberSS); ok {
-			section.Chapters = v.Value
+			s.Chapters = v.Value
+			for _, id := range v.Value {
+				assigned[id] = struct{}{}
+			}
 		}
-		outlineSections = append(outlineSections, section)
+
+		out.Sections = append(out.Sections, s)
 	}
 
-	return &outlineSections, nil
+	sort.Slice(out.Sections, func(i, j int) bool { return out.Sections[i].Place < out.Sections[j].Place })
+
+	for _, ch := range chapters {
+		if _, ok := assigned[ch.ID]; !ok {
+			out.Unassigned = append(out.Unassigned, ch.ID) // or append(ch) if your API expects full objects
+		}
+	}
+
+	return &out, nil
 }
 
 func (d *DAO) DeleteOutline(storyID string) error {
@@ -115,26 +146,26 @@ func (d *DAO) DeleteOutline(storyID string) error {
 	return err
 }
 
-func (d *DAO) UpdateOutline(outline models.OutlineRequest) error {
+func (d *DAO) UpdateOutline(outline models.OutlineRequest) (*models.OutlineResponse, error) {
 	tableName := "outlines" + GetTableSuffix()
 	twii := &dynamodb.TransactWriteItemsInput{}
 	now := strconv.FormatInt(time.Now().Unix(), 10)
 
 	for _, section := range outline.Sections {
-		// ✅ Define base ExpressionAttributeValues
 		expressionValues := map[string]types.AttributeValue{
+			":header":     &types.AttributeValueMemberS{Value: section.Header},
+			":status":     &types.AttributeValueMemberS{Value: string(section.Status)},
 			":text":       &types.AttributeValueMemberS{Value: section.Text},
 			":updated_at": &types.AttributeValueMemberN{Value: now},
+			":backstory":  &types.AttributeValueMemberS{Value: outline.Backstory},
 		}
 
-		// ✅ UpdateExpression for normal updates
-		updateExpression := "SET #text = :text, #updated_at = :updated_at"
+		updateExpression := "SET #text = :text, updated_at = :updated_at, header=:header, #status=:status, backstory=:backstory"
 		expressionAttributeNames := map[string]string{
-			"#text":       "text",
-			"#updated_at": "updated_at",
+			"#text":   "text",
+			"#status": "status",
 		}
 
-		// ✅ Handle chapters: Update if non-empty, remove if empty
 		if len(section.Chapters) > 0 {
 			expressionValues[":chapters"] = &types.AttributeValueMemberSS{Value: section.Chapters}
 			updateExpression += ", #chapters = :chapters"
@@ -162,12 +193,21 @@ func (d *DAO) UpdateOutline(outline models.OutlineRequest) error {
 
 	awsErr, err := d.awsWriteTransaction(twii)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !awsErr.IsNil() {
-		return fmt.Errorf("--AWSERROR-- Code:%s, Type: %s, Message: %s", awsErr.Code, awsErr.ErrorType, awsErr.Text)
+		return nil, fmt.Errorf("--AWSERROR-- Code:%s, Type: %s, Message: %s", awsErr.Code, awsErr.ErrorType, awsErr.Text)
 	}
-	return nil
+
+	allChapters, err := d.GetChaptersByStoryID(outline.StoryID)
+	if err != nil {
+		return nil, fmt.Errorf("refetch outline: %w", err)
+	}
+	resp, err := d.GetOutlineByStoryID(outline.StoryID, allChapters)
+	if err != nil {
+		return nil, fmt.Errorf("refetch outline: %w", err)
+	}
+	return resp, nil
 }
 
 func (d *DAO) CreateOutline(outline models.OutlineRequest) (*models.OutlineRequest, error) {
@@ -177,16 +217,17 @@ func (d *DAO) CreateOutline(outline models.OutlineRequest) (*models.OutlineReque
 		return nil, err
 	}
 	now := strconv.FormatInt(time.Now().Unix(), 10)
-	outline.Sections = GenerateStoryOutlineSections(outline.Type)
+	outline.Sections = GenerateStoryOutlineSections(outline.Template)
 	for _, section := range outline.Sections {
 
 		attributes := map[string]types.AttributeValue{
 			"story_id":    &types.AttributeValueMemberS{Value: outline.StoryID},
 			"place":       &types.AttributeValueMemberN{Value: strconv.Itoa(section.Place)},
-			"type":        &types.AttributeValueMemberS{Value: string(outline.Type)},
+			"type":        &types.AttributeValueMemberS{Value: string(outline.Template)},
 			"header":      &types.AttributeValueMemberS{Value: section.Header},
 			"description": &types.AttributeValueMemberS{Value: section.Description},
 			"created_at":  &types.AttributeValueMemberN{Value: now},
+			"backstory":   &types.AttributeValueMemberS{Value: outline.Backstory},
 		}
 		twi := types.TransactWriteItem{
 			Put: &types.Put{

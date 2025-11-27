@@ -28,10 +28,10 @@ describe('Queue', () => {
     place: '0',
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     // Reset the internal queue state by processing it
-    ProcessDBQueue();
+    await ProcessDBQueue();
   });
 
   afterEach(() => {
@@ -292,8 +292,14 @@ describe('Queue', () => {
 
       await ProcessDBQueue();
 
-      // Should process both operations
-      expect(api.put).toHaveBeenCalledTimes(2);
+      // Should process only the most recent operation (deduplicated)
+      expect(api.put).toHaveBeenCalledTimes(1);
+      // Verify it was the second order map (most recent)
+      expect(api.put).toHaveBeenCalledWith(
+        '/stories/story-123/orderMap',
+        orderMap2,
+        expect.any(Object),
+      );
     });
   });
 
@@ -412,8 +418,6 @@ describe('Queue', () => {
     });
 
     it('should handle API errors and requeue failed operations', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       // First call fails, second call succeeds
       vi.mocked(api.put)
         .mockRejectedValueOnce(new Error('Network error'))
@@ -431,17 +435,10 @@ describe('Queue', () => {
       // First process should fail and requeue
       await ProcessDBQueue();
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Failed to save',
-        expect.any(Error),
-      );
-
       // Second process should succeed
       await ProcessDBQueue();
 
       expect(api.put).toHaveBeenCalledTimes(2);
-
-      consoleErrorSpy.mockRestore();
     });
 
     it('should accept 501 status as valid response for saves', async () => {
@@ -591,8 +588,6 @@ describe('Queue', () => {
 
   describe('Error handling', () => {
     it('should handle save errors gracefully', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       vi.mocked(api.put).mockRejectedValue(new Error('Server error'));
 
       QueueOp(
@@ -606,17 +601,11 @@ describe('Queue', () => {
 
       await expect(ProcessDBQueue()).resolves.not.toThrow();
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Failed to save',
-        expect.any(Error),
-      );
-
-      consoleErrorSpy.mockRestore();
+      // Verify that the operation was attempted
+      expect(api.put).toHaveBeenCalled();
     });
 
     it('should handle delete errors gracefully', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       vi.mocked(api.delete).mockRejectedValue(new Error('Server error'));
 
       QueueOp(
@@ -630,14 +619,11 @@ describe('Queue', () => {
 
       await expect(ProcessDBQueue()).resolves.not.toThrow();
 
-      expect(consoleErrorSpy).toHaveBeenCalled();
-
-      consoleErrorSpy.mockRestore();
+      // Verify that the operation was attempted
+      expect(api.delete).toHaveBeenCalled();
     });
 
     it('should handle sync order errors gracefully', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       vi.mocked(api.put).mockRejectedValue(new Error('Server error'));
 
       const orderMap = {
@@ -657,9 +643,8 @@ describe('Queue', () => {
 
       await expect(ProcessDBQueue()).resolves.not.toThrow();
 
-      expect(consoleErrorSpy).toHaveBeenCalled();
-
-      consoleErrorSpy.mockRestore();
+      // Verify that the operation was attempted
+      expect(api.put).toHaveBeenCalled();
     });
   });
 });

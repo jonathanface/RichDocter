@@ -1,15 +1,16 @@
+import axios from "axios";
+import type { SerializedEditorState } from "lexical";
 import { useCallback, useState } from "react";
-import { SerializedEditorState } from "lexical";
-import { useLoader } from "../../../hooks/useLoader";
-import {
-  CustomSerializedParagraphNode,
-  CustomParagraphNode,
-} from "../../../components/ThreadWriter/customNodes/CustomParagraphNode";
 import { v4 as uuidv4 } from "uuid";
+import { api } from "../../../api";
+import {
+  CustomParagraphNode,
+  type CustomSerializedParagraphNode,
+} from "../../../components/ThreadWriter/customNodes/CustomParagraphNode";
+import { useLoader } from "../../../hooks/useLoader";
 import { useToaster } from "../../../hooks/useToaster";
 import { AlertToastType } from "../../../types/AlertToasts";
-import axios from "axios";
-import { api } from "../../../api";
+import { logger } from "../../../utils/logger";
 
 const generateBlankLine = (): CustomSerializedParagraphNode => ({
   children: [],
@@ -27,7 +28,9 @@ export const useFetchStoryBlocks = (
   storyId: string,
   chapterId: string,
   setStoryBlocks?: (blocks: SerializedEditorState) => void,
-  previousNodeKeysRef?: React.RefObject<Map<string, string>>,
+  previousNodeKeysRef?: React.RefObject<
+    Map<string, { text: string; place: string }>
+  >
 ) => {
   const { showLoader, hideLoader } = useLoader();
   const { setAlertState } = useToaster();
@@ -56,7 +59,7 @@ export const useFetchStoryBlocks = (
 
         const remappedStoryBlocks: CustomSerializedParagraphNode[] =
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          data.items?.map((item: any) => {
+          data.items?.map((item: any, index: number) => {
             const key = item.key_id?.Value || "";
 
             const fixed: CustomSerializedParagraphNode = item.chunk?.Value
@@ -69,7 +72,10 @@ export const useFetchStoryBlocks = (
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               .map((child: any) => child.text)
               .join("");
-            previousNodeKeysRef.current.set(key, textContent);
+            previousNodeKeysRef.current.set(key, {
+              text: textContent,
+              place: index.toString(),
+            });
 
             if (fixed.type !== CustomParagraphNode.getType()) {
               fixed.type = CustomParagraphNode.getType();
@@ -116,10 +122,10 @@ export const useFetchStoryBlocks = (
               },
             });
           } else {
-            console.error("Error retrieving story content:", error);
+            logger.error("Error retrieving story content:", error);
           }
         } else {
-          console.error("Unexpected error retrieving story content:", error);
+          logger.error("Unexpected error retrieving story content:", error);
         }
       } finally {
         hideLoader();
@@ -133,8 +139,7 @@ export const useFetchStoryBlocks = (
       showLoader,
       hideLoader,
       setAlertState,
-      setTableStatus,
-    ],
+    ]
   );
 
   return {

@@ -48,6 +48,7 @@ COPY ./billing ./billing
 COPY ./bin /usr/local/bin/
 COPY ./assets ./assets
 COPY ./daos ./daos
+COPY ./logger ./logger
 COPY ./sessions ./sessions
 COPY ./cmd ./cmd
 
@@ -55,7 +56,7 @@ ENV PATH="/usr/local/bin:${PATH}"
 RUN chmod +x /usr/local/bin/wkhtmltoimage || true \
  && which wkhtmltoimage \
  && wkhtmltoimage -V
- RUN chmod +x /usr/local/bin/wkhtmltopdf || true \
+RUN chmod +x /usr/local/bin/wkhtmltopdf || true \
  && which wkhtmltopdf \
  && wkhtmltopdf -V
 

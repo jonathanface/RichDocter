@@ -1,72 +1,87 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
+import LexicalErrorBoundary from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
+import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import axios from "axios";
 import {
   $createPoint,
   $createRangeSelection,
   $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isElementNode,
   $isRangeSelection,
   $isTextNode,
   $setSelection,
   CLEAR_HISTORY_COMMAND,
-  LexicalEditor,
-  LexicalNode,
+  type EditorState,
+  type LexicalEditor,
+  type LexicalNode,
   ParagraphNode,
-  SerializedEditorState,
-  SerializedElementNode,
-  SerializedLexicalNode,
+  type SerializedEditorState,
+  type SerializedElementNode,
+  type SerializedLexicalNode,
 } from "lexical";
-import { $getRoot, $getSelection, $isElementNode, EditorState } from "lexical";
-import LexicalErrorBoundary from "@lexical/react/LexicalErrorBoundary";
-import styles from "./threadwriter.module.css";
-import { useLoader } from "../../hooks/useLoader";
-import { ProcessDBQueue, QueueOp, QueueSyncOrder } from "./queue";
-import { DBOperationBlock, DBOperationType } from "../../types/DBOperations";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { CustomParagraphNode } from "./customNodes/CustomParagraphNode";
-import { BlockOrderMap } from "../../types/Document";
+import { api } from "../../api";
+import { generateTextHash } from "../../constants/constants";
+import { useLoader } from "../../hooks/useLoader";
+import { useSelections } from "../../hooks/useSelections";
 import { useToaster } from "../../hooks/useToaster";
 import {
   AlertCommandType,
-  AlertFunctionCall,
+  type AlertFunctionCall,
   AlertToastType,
 } from "../../types/AlertToasts";
-import { AssociationDecoratorPlugin } from "./plugins/AssociationDecoratorPlugin";
 import {
-  Association,
+  type Association,
   AssociationType,
-  SimplifiedAssociation,
+  type SimplifiedAssociation,
 } from "../../types/Associations";
-import { DocumentMenu } from "./subcomponents/DocumentMenu";
-import { useSelections } from "../../hooks/useSelections";
-import { useFetchStoryBlocks } from "./hooks/useFetchStoryBlocks";
-import { useAssociations } from "./hooks/useAssociations";
-import { useEditorStateUpdater } from "./hooks/useEditorStateUpdater";
-import { dbEventEmitter, SaveSuccessPayload } from "../../utils/EventEmitter";
-import { generateTextHash } from "../../constants/constants";
+import {
+  type DBOperationBlock,
+  DBOperationType,
+} from "../../types/DBOperations";
+import type { BlockOrderMap } from "../../types/Document";
+import {
+  dbEventEmitter,
+  type SaveSuccessPayload,
+} from "../../utils/EventEmitter";
 import {
   getParagraphIndexByKey,
   serializeWithChildren,
 } from "../../utils/helpers";
-import DocumentClickPlugin, { ClickData } from "./plugins/DocumentClickPlugin";
-import { useDocumentSettings } from "./hooks/useDocumentSettings";
-import { TextTransformPlugin } from "./plugins/TextTransformPlugin";
-import { useEditorCommands } from "./hooks/useEditorCommands";
+import { logger } from "../../utils/logger";
 import {
   $isAssociationInlineNode,
   AssociationInlineNode,
 } from "./customNodes/AssociationInlineNode";
-import axios from "axios";
-import { api } from "../../api";
-import { ContextMenu, ContextMenuProps } from "./subcomponents/ContextMenu";
-import { AssociationPanel } from "./subcomponents/AssociationPanel";
-import { Toolbar } from "./subcomponents/ThreadWriterToolbar";
+import { CustomParagraphNode } from "./customNodes/CustomParagraphNode";
+import { useAssociations } from "./hooks/useAssociations";
 import { useAutotabOnEnter } from "./hooks/useAutotabOnEnter";
-import { useMobileCursorAdjustment } from "./hooks/useMobileCursorAdjustment";
 import { useCursorMemory } from "./hooks/useCursorMemory";
+import { useDocumentSettings } from "./hooks/useDocumentSettings";
+import { useEditorCommands } from "./hooks/useEditorCommands";
+import { useEditorStateUpdater } from "./hooks/useEditorStateUpdater";
+import { useFetchStoryBlocks } from "./hooks/useFetchStoryBlocks";
+import { useMobileCursorAdjustment } from "./hooks/useMobileCursorAdjustment";
+import { AssociationDecoratorPlugin } from "./plugins/AssociationDecoratorPlugin";
+import DocumentClickPlugin, {
+  type ClickData,
+} from "./plugins/DocumentClickPlugin";
+import { TextTransformPlugin } from "./plugins/TextTransformPlugin";
+import { ProcessDBQueue, QueueOp, QueueSyncOrder } from "./queue";
+import { AssociationPanel } from "./subcomponents/AssociationPanel";
+import {
+  ContextMenu,
+  type ContextMenuProps,
+} from "./subcomponents/ContextMenu";
+import { DocumentMenu } from "./subcomponents/DocumentMenu";
+import { Toolbar } from "./subcomponents/ThreadWriterToolbar";
+import styles from "./threadwriter.module.css";
 
 const theme = {
   "custom-paragraph": styles.customParagraph,
@@ -84,7 +99,7 @@ export const ThreadWriter = () => {
     theme,
     nodes: [CustomParagraphNode, AssociationInlineNode],
     onError: (error: Error) => {
-      console.error("Lexical error:", error);
+      logger.error("Lexical error:", error);
     },
   };
 
@@ -99,7 +114,9 @@ export const ThreadWriter = () => {
   // refs
   const editorRef = useRef<LexicalEditor>(null);
   const isProgrammaticChange = useRef(false);
-  const previousNodeKeysRef = useRef<Map<string, string>>(new Map());
+  const previousNodeKeysRef = useRef<
+    Map<string, { text: string; place: string }>
+  >(new Map());
   const previousTextHashRef = useRef<string | null>(null);
   const pastedParagraphKeys = useRef(new Set<string>());
   const isInitialLoad = useRef(true);
@@ -108,7 +125,7 @@ export const ThreadWriter = () => {
 
   // states
   const [storyBlocks, setStoryBlocks] = useState<SerializedEditorState | null>(
-    null,
+    null
   );
   const [contextMenuData, setContextMenuData] =
     useState<ContextMenuProps>(defaultContextData);
@@ -131,7 +148,7 @@ export const ThreadWriter = () => {
     editorRef,
     story?.story_id,
     chapter?.id,
-    !!storyBlocks, // Restore cursor after content loads
+    !!storyBlocks // Restore cursor after content loads
   );
 
   // Fetchers
@@ -140,7 +157,7 @@ export const ThreadWriter = () => {
       story?.story_id || "",
       chapter?.id || "",
       setStoryBlocks,
-      previousNodeKeysRef,
+      previousNodeKeysRef
     );
 
   const getSelectedText = () => {
@@ -163,15 +180,14 @@ export const ThreadWriter = () => {
         /* Resolved - text copied to clipboard successfully */
       },
       () => {
-        console.error("Failed to copy");
-        /* Rejected - text failed to copy to the clipboard */
-      },
+        logger.error("Failed to copy");
+      }
     );
     resetContextMenu();
   };
 
   const saveAssociationsToServer = async (
-    associations: SimplifiedAssociation[],
+    associations: SimplifiedAssociation[]
   ) => {
     if (!story?.story_id) return;
     try {
@@ -184,13 +200,12 @@ export const ThreadWriter = () => {
           headers: {
             "Content-Type": "application/json",
           },
-        },
+        }
       );
 
       return data;
     } catch (error) {
-      console.error(error);
-
+      logger.error("Error saving associations:", error);
       if (axios.isAxiosError(error) && error.response?.status === 402) {
         const subscribeFunc: AlertFunctionCall = {
           type: AlertCommandType.subscribe,
@@ -220,7 +235,7 @@ export const ThreadWriter = () => {
 
   const handleMenuItemClick = async (
     _event: React.MouseEvent,
-    type: AssociationType,
+    type: AssociationType
   ) => {
     resetContextMenu();
     const text = getSelectedText();
@@ -251,7 +266,7 @@ export const ThreadWriter = () => {
   };
 
   const deleteAssociationsFromServer = async (
-    associations: SimplifiedAssociation[],
+    associations: SimplifiedAssociation[]
   ) => {
     if (!story) return;
     try {
@@ -263,11 +278,11 @@ export const ThreadWriter = () => {
       });
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        console.error(
-          `Error deleting association: ${error.response?.status} ${error.response?.statusText}`,
+        logger.error(
+          `Error deleting association: ${error.response?.status} ${error.response?.statusText}`
         );
       } else {
-        console.error("Unexpected error deleting association:", error);
+        logger.error("Unexpected error deleting association:", error);
       }
     } finally {
       hideLoader();
@@ -334,7 +349,7 @@ export const ThreadWriter = () => {
     try {
       await ProcessDBQueue();
     } catch (error) {
-      console.error((error as Error).message);
+      logger.error("Error from DB queue:", (error as Error).message);
       setAlertState({
         title: "Unable to sync",
         message:
@@ -348,7 +363,7 @@ export const ThreadWriter = () => {
 
   const queueParagraphOrderResync = useCallback(() => {
     if (!story || !chapter || !editorRef.current) return;
-    console.log("queueing a resync!!!!!");
+    logger.log("Queueing paragraph order resync");
     editorRef.current.read(() => {
       const root = $getRoot();
       const paragraphs = root
@@ -361,7 +376,7 @@ export const ThreadWriter = () => {
       paragraphs.forEach((paragraph) => {
         const index = getParagraphIndexByKey(
           editorRef.current,
-          paragraph.getKey(),
+          paragraph.getKey()
         );
         if (index !== null) {
           const asCP = paragraph as CustomParagraphNode;
@@ -387,6 +402,7 @@ export const ThreadWriter = () => {
   }, [chapter, story]);
 
   const writeEpochRef = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: We intentionally only depend on story?.story_id and chapter?.id to avoid re-running when story/chapter properties change. This should only run when switching stories/chapters.
   useEffect(() => {
     if (!chapter) {
       // Clear storyBlocks when chapter becomes undefined (navigating away)
@@ -405,8 +421,54 @@ export const ThreadWriter = () => {
       isQueuePausedRef.current = false;
     }, 0);
     writeEpochRef.current += 1;
-  }, [chapter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapter?.id]);
 
+  const loadChapterIntoEditor = useCallback(
+    (
+      editor: LexicalEditor,
+      serialized: SerializedEditorState | string,
+      opts?: { tag?: string }
+    ) => {
+      const json =
+        typeof serialized === "string"
+          ? serialized
+          : JSON.stringify(serialized);
+
+      // bracket the swap
+      isProgrammaticChange.current = true;
+      isQueuePausedRef.current = true;
+      pastedParagraphKeys.current.clear();
+      previousNodeKeysRef.current.clear();
+
+      const next = editor.parseEditorState(json);
+      editor.setEditorState(next, { tag: opts?.tag ?? "CHAPTER_LOAD" });
+
+      // seed previousNodeKeys so onChange won't diff against the old chapter
+      editor.update(() => {
+        const root = $getRoot();
+        root.getChildren().forEach((n, index) => {
+          if (n instanceof CustomParagraphNode) {
+            const id = n.getKeyId();
+            if (id)
+              previousNodeKeysRef.current.set(id, {
+                text: n.getTextContent(),
+                place: index.toString(),
+              });
+          }
+        });
+      });
+
+      // clear history for clean undo
+      editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
+
+      isProgrammaticChange.current = false;
+      isQueuePausedRef.current = false;
+    },
+    []
+  );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: We intentionally only depend on story?.story_id and chapter?.id to avoid re-running when story/chapter properties change. This should only run when switching stories/chapters.
   useEffect(() => {
     if (!story || !chapter) return;
     if (!storyBlocks) return;
@@ -415,27 +477,28 @@ export const ThreadWriter = () => {
     loadChapterIntoEditor(editorRef.current, storyBlocks, {
       tag: "CHAPTER_LOAD",
     });
-    // refresh the “no-change” hash after a programmatic load
+    // refresh the "no-change" hash after a programmatic load
     previousTextHashRef.current = generateTextHash(editorRef.current);
-  }, [story, chapter, storyBlocks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [story?.story_id, chapter?.id, storyBlocks, loadChapterIntoEditor]);
 
   const queueParagraphForDeletion = useCallback(
-    (chapterID: string, customKey: string) => {
+    (chapterID: string, customKey: string, place?: string) => {
       if (!story) return;
-      const deleteBlock: DBOperationBlock = { key_id: customKey };
+      const deleteBlock: DBOperationBlock = { key_id: customKey, place };
       const storyID = story.story_id;
       QueueOp(
         DBOperationType.delete,
         storyID,
         chapterID,
         deleteBlock,
-        previousTableStatus === "501" && tableStatus === "ok" ? true : false,
+        previousTableStatus === "501" && tableStatus === "ok",
         {
           epoch: writeEpochRef.current,
-        },
+        }
       );
     },
-    [story, previousTableStatus, tableStatus],
+    [story, previousTableStatus, tableStatus]
   );
 
   const queueParagraphForSave = useCallback(
@@ -443,7 +506,7 @@ export const ThreadWriter = () => {
       chapterID: string,
       customKey: string,
       order: string,
-      content: SerializedElementNode<SerializedLexicalNode>,
+      content: SerializedElementNode<SerializedLexicalNode>
     ) => {
       if (!story || !chapter) return;
       const saveBlock: DBOperationBlock = {
@@ -457,21 +520,19 @@ export const ThreadWriter = () => {
         storyID,
         chapterID,
         saveBlock,
-        previousTableStatus === "501" && tableStatus === "ok" ? true : false,
+        previousTableStatus === "501" && tableStatus === "ok",
         {
           epoch: writeEpochRef.current,
-        },
+        }
       );
     },
-    [chapter, previousTableStatus, story, tableStatus],
+    [chapter, previousTableStatus, story, tableStatus]
   );
 
   const queueAllParagraphsForSave = useCallback(
     (storyID: string, chapterID: string) => {
       if (!editorRef || !editorRef.current) {
-        console.warn(
-          "ThreadWriter - Editor, story, or chapter is not available.",
-        );
+        logger.warn("ThreadWriter - Editor not available.");
         return;
       }
 
@@ -484,14 +545,14 @@ export const ThreadWriter = () => {
         const paragraphs = root
           .getChildren()
           .filter(
-            (node) => node instanceof CustomParagraphNode,
+            (node) => node instanceof CustomParagraphNode
           ) as CustomParagraphNode[];
 
         paragraphs.forEach((paragraph, index) => {
           const key_id = paragraph.getKeyId();
           if (!key_id) {
-            console.warn(
-              `ThreadWriter - Paragraph at index ${index} is missing a key_id.`,
+            logger.warn(
+              `ThreadWriter - Paragraph at index ${index} is missing a key_id.`
             );
             return;
           }
@@ -499,8 +560,8 @@ export const ThreadWriter = () => {
           // Serialize the paragraph
           const serialized = serializeWithChildren(paragraph);
           if (!serialized) {
-            console.warn(
-              `ThreadWriter - Failed to serialize paragraph with key_id: ${key_id}`,
+            logger.warn(
+              `ThreadWriter - Failed to serialize paragraph with key_id: ${key_id}`
             );
             return;
           }
@@ -522,7 +583,7 @@ export const ThreadWriter = () => {
         try {
           runQueue();
         } catch (error) {
-          console.error("error from db queue", error);
+          logger.error("Error from db queue", error);
         }
         setAlertState({
           title: "Chapter ready",
@@ -534,7 +595,7 @@ export const ThreadWriter = () => {
         });
       });
     },
-    [setAlertState, runQueue],
+    [setAlertState, runQueue]
   );
 
   useEffect(() => {
@@ -556,7 +617,7 @@ export const ThreadWriter = () => {
     if (story?.story_id && chapter?.id) {
       const fetchData = async () => {
         if (isInitialLoad.current && editorRef.current) {
-          console.log("Initial load: fetching story blocks and associations");
+          logger.log("Initial load: fetching story blocks and associations");
           isProgrammaticChange.current = true; // Start programmatic change
           await getBatchedStoryBlocks("");
           const newHash = generateTextHash(editorRef.current);
@@ -564,7 +625,7 @@ export const ThreadWriter = () => {
           isProgrammaticChange.current = false; // End programmatic change
           isInitialLoad.current = false;
         } else {
-          console.log("Chapter change: fetching new story blocks");
+          logger.log("Chapter change: fetching new story blocks");
           isProgrammaticChange.current = true; // Start programmatic change
           await getBatchedStoryBlocks("");
           isProgrammaticChange.current = false; // End programmatic change
@@ -574,18 +635,7 @@ export const ThreadWriter = () => {
     }
   }, [story?.story_id, chapter?.id, getBatchedStoryBlocks]);
 
-  useEffect(() => {
-    // pause the queue processing during chapter change, as this leads to buggy behavior
-    // with data from one chapter getting saved to another.
-    isQueuePausedRef.current = true;
-    if (previousNodeKeysRef.current) {
-      previousNodeKeysRef.current.clear();
-    }
-    setTimeout(() => {
-      isQueuePausedRef.current = false;
-    }, 2000);
-  }, [chapter]);
-
+  // biome-ignore lint/correctness/useExhaustiveDependencies: We intentionally only depend on story?.story_id and chapter?.id to avoid re-running when story/chapter properties change. This should only run when switching stories/chapters.
   useEffect(() => {
     if (!chapter) return;
     if (editorRef.current) {
@@ -613,7 +663,7 @@ export const ThreadWriter = () => {
               }
               node.replace(replacement);
             }
-          },
+          }
         );
 
       // Handle empty CustomParagraphNodes
@@ -621,7 +671,7 @@ export const ThreadWriter = () => {
         CustomParagraphNode,
         (node: CustomParagraphNode) => {
           const existedBefore = !!previousNodeKeysRef.current.get(
-            node.getKeyId() ?? "",
+            node.getKeyId() ?? ""
           );
           if (node.getTextContent().trim() === "" && existedBefore) {
             // Prevent redundant replacement of already empty nodes
@@ -633,19 +683,20 @@ export const ThreadWriter = () => {
                   chapter.id,
                   id,
                   index.toString(),
-                  serializeWithChildren(node),
+                  serializeWithChildren(node)
                 );
               }
             }
           }
-        },
+        }
       );
       return () => {
         unregisterParagraphTransform();
         unregisterCustomTransform();
       };
     }
-  }, [editorRef, chapter, queueParagraphForSave, documentSettings?.autotab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapter?.id, queueParagraphForSave, documentSettings?.autotab]);
 
   useEffect(() => {
     const processInterval = setInterval(() => {
@@ -656,15 +707,15 @@ export const ThreadWriter = () => {
     return () => {
       clearInterval(processInterval);
     };
-  }, [story?.story_id, setAlertState, runQueue]);
+  }, [runQueue]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
       try {
-        console.warn("UNLOAD DETECTED");
+        logger.warn("UNLOAD DETECTED");
         ProcessDBQueue(); // force sync
       } catch (err) {
-        console.error("Error flushing DB queue on unload", err);
+        logger.error("Error flushing DB queue on unload", err);
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -675,9 +726,7 @@ export const ThreadWriter = () => {
     (editorState: EditorState) => {
       if (!chapter) return;
       if (isProgrammaticChange.current) {
-        console.log(
-          "Programmatic change detected, skipping onChange handling.",
-        );
+        logger.log("Programmatic change detected, skipping onChange handling.");
         return;
       }
       if (!editorRef.current) return;
@@ -685,7 +734,7 @@ export const ThreadWriter = () => {
       const previousHash = previousTextHashRef.current;
 
       if (currentHash === previousHash) {
-        console.log("No content changes detected, skipping onChange handling.");
+        logger.log("No content changes detected, skipping onChange handling.");
         return;
       }
       previousTextHashRef.current = currentHash;
@@ -712,9 +761,9 @@ export const ThreadWriter = () => {
                 newParagraphKeys.add(id);
               }
               const currentText = node.getTextContent();
-              const prevText = previousNodeKeysRef.current.get(id);
+              const prevData = previousNodeKeysRef.current.get(id);
               const textHasChanged =
-                prevText === undefined || currentText !== prevText;
+                prevData === undefined || currentText !== prevData.text;
 
               // Add to paragraphsToSave if new, pasted, or selected
               const selection = $getSelection();
@@ -726,11 +775,20 @@ export const ThreadWriter = () => {
                   ? customParagraph.getKeyId()
                   : null;
 
+              const isSelected = id === selectedNodeKey;
+              const isNew = newParagraphKeys.has(id);
+              const isEmpty = currentText.trim() === "";
+
+              // Don't save new paragraphs if they're empty, even if selected
+              // Only save once they have actual content
+              const shouldSkipNewEmpty = isNew && isEmpty;
+
               if (
-                pastedParagraphKeys.current.has(id) ||
-                newParagraphKeys.has(id) ||
-                id === selectedNodeKey ||
-                textHasChanged
+                !shouldSkipNewEmpty &&
+                (pastedParagraphKeys.current.has(id) ||
+                  isNew ||
+                  isSelected ||
+                  textHasChanged)
               ) {
                 const serialized = serializeWithChildren(node);
                 paragraphsToSave.push({
@@ -738,7 +796,10 @@ export const ThreadWriter = () => {
                   order: index.toString(),
                   content: serialized,
                 });
-                previousNodeKeysRef.current.set(id, currentText);
+                previousNodeKeysRef.current.set(id, {
+                  text: currentText,
+                  place: index.toString(),
+                });
               }
             }
           }
@@ -746,10 +807,20 @@ export const ThreadWriter = () => {
 
         // Remaining keys in previousNodeKeysRef are to be deleted
         const deletedKeys = Array.from(
-          previousNodeKeysRef.current.keys(),
+          previousNodeKeysRef.current.keys()
         ).filter((key) => !currentNodeKeys.has(key));
+
+        if (deletedKeys.length > 0) {
+          logger.log("Delete operation detected", {
+            deletedKeys,
+            deletedCount: deletedKeys.length,
+            currentNodeCount: currentNodeKeys.size,
+          });
+        }
+
         deletedKeys.forEach((key) => {
-          queueParagraphForDeletion(chapter.id, key);
+          const prevData = previousNodeKeysRef.current.get(key);
+          queueParagraphForDeletion(chapter.id, key, prevData?.place);
           previousNodeKeysRef.current.delete(key);
         });
         if (deletedKeys.length || newParagraphKeys.size) {
@@ -758,13 +829,24 @@ export const ThreadWriter = () => {
 
         // Step 4: Filter saves – remove any that were just deleted
         const filteredSaves = paragraphsToSave.filter(
-          (p) => !deletedKeys.includes(p.key_id),
+          (p) => !deletedKeys.includes(p.key_id)
         );
-        filteredSaves.forEach((p) =>
-          queueParagraphForSave(chapter.id, p.key_id, p.order, p.content),
-        );
+
+        if (filteredSaves.length > 0) {
+          logger.log("Save operations queued", {
+            saveCount: filteredSaves.length,
+            savedKeys: filteredSaves.map((p) => p.key_id),
+          });
+        }
+
+        filteredSaves.forEach((p) => {
+          queueParagraphForSave(chapter.id, p.key_id, p.order, p.content);
+        });
         // If order resync is required, queue it
-        if (orderResyncRequired) queueParagraphOrderResync();
+        if (orderResyncRequired) {
+          logger.log("Order resync required after paragraph changes");
+          queueParagraphOrderResync();
+        }
       });
     },
     [
@@ -772,7 +854,7 @@ export const ThreadWriter = () => {
       queueParagraphForDeletion,
       queueParagraphForSave,
       queueParagraphOrderResync,
-    ],
+    ]
   );
 
   const onAssociationEditCallback = useCallback(
@@ -786,15 +868,15 @@ export const ThreadWriter = () => {
           [assoc], // axios auto-stringifies JSON
           {
             headers: { "Content-Type": "application/json" },
-          },
+          }
         );
       } catch (error) {
         if (axios.isAxiosError(error)) {
-          console.error(
-            `Error saving association: ${error.response?.status} ${error.message}`,
+          logger.error(
+            `Error saving association: ${error.response?.status} ${error.message}`
           );
         } else {
-          console.error(`Error saving association: ${error}`);
+          logger.error(`Error saving association: ${error}`);
         }
 
         setAlertState({
@@ -809,13 +891,13 @@ export const ThreadWriter = () => {
           prevAssociations.map((storedAssociation) =>
             storedAssociation.association_id === assoc.association_id
               ? { ...storedAssociation, ...assoc }
-              : storedAssociation,
-          ),
+              : storedAssociation
+          )
         );
         hideLoader();
       }
     },
-    [story, hideLoader, showLoader, setAlertState, setAssociations],
+    [story, hideLoader, showLoader, setAlertState, setAssociations]
   );
 
   const handleDocumentLeftClick = (event: MouseEvent | TouchEvent) => {
@@ -833,7 +915,7 @@ export const ThreadWriter = () => {
           return;
         }
 
-        let clientX, clientY;
+        let clientX: number, clientY: number;
         if (event instanceof MouseEvent) {
           clientX = event.clientX;
           clientY = event.clientY;
@@ -862,7 +944,7 @@ export const ThreadWriter = () => {
         const doc = document as unknown as {
           caretPositionFromPoint?: (
             x: number,
-            y: number,
+            y: number
           ) => { offsetNode: Node; offset: number } | null;
           caretRangeFromPoint?: (x: number, y: number) => Range | null;
         } & Document;
@@ -937,40 +1019,6 @@ export const ThreadWriter = () => {
   if (!storyBlocks) {
     return <div className={styles.loading}>Loading…</div>;
   }
-  const loadChapterIntoEditor = (
-    editor: LexicalEditor,
-    serialized: SerializedEditorState | string,
-    opts?: { tag?: string },
-  ) => {
-    const json =
-      typeof serialized === "string" ? serialized : JSON.stringify(serialized);
-
-    // bracket the swap
-    isProgrammaticChange.current = true;
-    isQueuePausedRef.current = true;
-    pastedParagraphKeys.current.clear();
-    previousNodeKeysRef.current.clear();
-
-    const next = editor.parseEditorState(json);
-    editor.setEditorState(next, { tag: opts?.tag ?? "CHAPTER_LOAD" });
-
-    // seed previousNodeKeys so onChange won’t diff against the old chapter
-    editor.update(() => {
-      const root = $getRoot();
-      root.getChildren().forEach((n) => {
-        if (n instanceof CustomParagraphNode) {
-          const id = n.getKeyId();
-          if (id) previousNodeKeysRef.current.set(id, n.getTextContent());
-        }
-      });
-    });
-
-    // clear history for clean undo
-    editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
-
-    isProgrammaticChange.current = false;
-    isQueuePausedRef.current = false;
-  };
 
   return (
     <div className={styles.outerWrapper}>

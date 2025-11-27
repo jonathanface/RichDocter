@@ -15,6 +15,7 @@ import {
   SaveSuccessPayload,
   SyncOrderSuccessPayload,
 } from "../../utils/EventEmitter";
+import { logger } from "../../utils/logger";
 
 type OperationRecord = {
   op: DBOperationType;
@@ -32,7 +33,7 @@ type DBOperationWithMeta = DBOperation & {
   epoch?: number;
   tableBecameReady: boolean;
 };
-const SyncOps: Array<DBOperationWithMeta> = [];
+const SyncOps: Map<string, DBOperationWithMeta> = new Map();
 // helper to avoid collisions across chapters/epochs
 const qKey = (
   epoch: number,
@@ -40,6 +41,9 @@ const qKey = (
   chapterID: string,
   keyId: string,
 ) => `${epoch}:${storyID}:${chapterID}:${keyId}`;
+// helper for sync operation keys (without block key_id)
+const syncKey = (epoch: number, storyID: string, chapterID: string) =>
+  `${epoch}:${storyID}:${chapterID}`;
 
 export const QueueOp = (
   opType: DBOperationType,
@@ -59,6 +63,12 @@ export const QueueOp = (
       opType === DBOperationType.save
     ) {
       // Save after delete is invalid — ignore
+      logger.warn("Queue operation: save after delete ignored (invalid)", {
+        blockKeyId: block.key_id,
+        storyID,
+        chapterID,
+        epoch,
+      });
       return;
     }
     if (
@@ -66,6 +76,12 @@ export const QueueOp = (
       opType === DBOperationType.delete
     ) {
       // Overwrite the save with a delete
+      logger.debug("Queue operation: delete overrides previous save", {
+        blockKeyId: block.key_id,
+        storyID,
+        chapterID,
+        epoch,
+      });
       OpQueueByKey.set(key, {
         op: DBOperationType.delete,
         storyID,
@@ -77,6 +93,23 @@ export const QueueOp = (
       });
       return;
     }
+    logger.debug("Queue operation: updating existing operation", {
+      blockKeyId: block.key_id,
+      opType,
+      existingOpType: existing.op,
+      storyID,
+      chapterID,
+      epoch,
+    });
+  } else {
+    logger.debug("Queue operation: new operation queued", {
+      blockKeyId: block.key_id,
+      opType,
+      storyID,
+      chapterID,
+      epoch,
+      queueSize: OpQueueByKey.size + 1,
+    });
   }
 
   OpQueueByKey.set(key, {
@@ -91,10 +124,37 @@ export const QueueOp = (
 };
 
 export const QueueSyncOrder = (op: DBOperationWithMeta) => {
-  SyncOps.push({ ...op, epoch: op.epoch ?? 0 });
+  const epoch = op.epoch ?? 0;
+  const key = syncKey(epoch, op.storyID, op.chapterID);
+  const existing = SyncOps.get(key);
+
+  logger.debug(
+    existing ? "Queue sync order: replacing existing" : "Queue sync order: new",
+    {
+      storyID: op.storyID,
+      chapterID: op.chapterID,
+      blockCount: op.orderList?.blocks?.length || 0,
+      epoch,
+      syncQueueSize: SyncOps.size + (existing ? 0 : 1),
+    }
+  );
+
+  SyncOps.set(key, { ...op, epoch });
 };
 
 export const ProcessDBQueue = async () => {
+  const queueSize = OpQueueByKey.size;
+  const syncQueueSize = SyncOps.size;
+
+  if (queueSize === 0 && syncQueueSize === 0) {
+    return;
+  }
+
+  logger.info("Processing DB queue", {
+    operationQueueSize: queueSize,
+    syncQueueSize,
+  });
+
   // snapshot and clear immediately to avoid concurrent mutation during processing
   const records = [...OpQueueByKey.values()];
   OpQueueByKey.clear();
@@ -137,10 +197,27 @@ export const ProcessDBQueue = async () => {
 
     // SAVE
     if (saveOps.length) {
+      logger.debug("Processing save operations", {
+        storyID,
+        chapterID,
+        blockCount: saveOps.length,
+        tableBecameReady,
+      });
       try {
         await saveBlocksToServer(saveOps, storyID, chapterID, tableBecameReady);
+        logger.info("Save operations successful", {
+          storyID,
+          chapterID,
+          blockCount: saveOps.length,
+        });
       } catch (err) {
-        console.error("Failed to save", err);
+        logger.error("Failed to save blocks - requeuing", {
+          error: err,
+          storyID,
+          chapterID,
+          blockCount: saveOps.length,
+          epoch: recs[0].epoch,
+        });
         // requeue with same epoch & grouping key
         for (const b of saveOps) {
           const rec: OperationRecord = {
@@ -159,6 +236,12 @@ export const ProcessDBQueue = async () => {
 
     // DELETE
     if (deleteOps.length) {
+      logger.debug("Processing delete operations", {
+        storyID,
+        chapterID,
+        blockCount: deleteOps.length,
+        tableBecameReady,
+      });
       try {
         await deleteBlocksFromServer(
           deleteOps,
@@ -166,8 +249,19 @@ export const ProcessDBQueue = async () => {
           chapterID,
           tableBecameReady,
         );
+        logger.info("Delete operations successful", {
+          storyID,
+          chapterID,
+          blockCount: deleteOps.length,
+        });
       } catch (err) {
-        console.error("Failed to delete", err);
+        logger.error("Failed to delete blocks - requeuing", {
+          error: err,
+          storyID,
+          chapterID,
+          blockCount: deleteOps.length,
+          epoch: recs[0].epoch,
+        });
         for (const b of deleteOps) {
           const rec: OperationRecord = {
             op: DBOperationType.delete,
@@ -184,22 +278,47 @@ export const ProcessDBQueue = async () => {
     }
   }
 
-  // Process order-sync ops in a safe loop
-  let n = SyncOps.length;
-  while (n--) {
-    const op = SyncOps.shift()!; // oldest first
-    try {
-      await syncBlockOrderMap(
-        op.orderList!,
-        op.storyID,
-        op.chapterID,
-        op.tableBecameReady,
-      );
-    } catch (err) {
-      console.error("Failed to sync order", err);
-      SyncOps.push(op); // requeue
+  // Process order-sync ops
+  if (SyncOps.size > 0) {
+    logger.debug("Processing order-sync operations", {
+      syncOpsCount: SyncOps.size,
+    });
+
+    // Snapshot sync ops and clear the map
+    const syncOps = [...SyncOps.values()];
+    SyncOps.clear();
+
+    for (const op of syncOps) {
+      try {
+        await syncBlockOrderMap(
+          op.orderList!,
+          op.storyID,
+          op.chapterID,
+          op.tableBecameReady,
+        );
+        logger.info("Order-sync operation successful", {
+          storyID: op.storyID,
+          chapterID: op.chapterID,
+          blockCount: op.orderList?.blocks?.length || 0,
+        });
+      } catch (err) {
+        logger.error("Failed to sync order - requeuing", {
+          error: err,
+          storyID: op.storyID,
+          chapterID: op.chapterID,
+        });
+        // Requeue with same key
+        const epoch = op.epoch ?? 0;
+        const key = syncKey(epoch, op.storyID, op.chapterID);
+        SyncOps.set(key, op);
+      }
     }
   }
+
+  logger.info("DB queue processing complete", {
+    remainingQueueSize: OpQueueByKey.size,
+    remainingSyncQueueSize: SyncOps.size,
+  });
 };
 
 const saveBlocksToServer = async (
@@ -220,7 +339,7 @@ const saveBlocksToServer = async (
     },
   });
 
-  if (res.status !== 200 && res.status !== 201) {
+  if (res.status !== 200 && res.status !== 201 && res.status !== 501) {
     const error: APIError = {
       statusCode: res.status,
       statusText: res.statusText,
@@ -255,7 +374,7 @@ const deleteBlocksFromServer = async (
       },
     });
 
-    if (res.status !== 200 && res.status !== 204) {
+    if (res.status !== 200 && res.status !== 204 && res.status !== 501) {
       const error: APIError = {
         statusCode: res.status,
         statusText: res.statusText,
@@ -269,7 +388,13 @@ const deleteBlocksFromServer = async (
       emitDeleteSuccess(payload);
     }
   } catch (error) {
-    console.error("ERROR DELETING BLOCK:", error);
+    logger.error("Error deleting blocks from server", {
+      error,
+      storyID,
+      chapterID,
+      blockCount: ops.length,
+    });
+    throw error;
   }
 };
 
@@ -292,7 +417,7 @@ const syncBlockOrderMap = async (
       },
     });
 
-    if (res.status !== 200 && res.status !== 201) {
+    if (res.status !== 200 && res.status !== 201 && res.status !== 501) {
       const error: APIError = {
         statusCode: res.status,
         statusText: res.statusText,
@@ -306,6 +431,12 @@ const syncBlockOrderMap = async (
       emitSyncOrderSuccess(payload);
     }
   } catch (error) {
-    console.error("ERROR ORDERING BLOCKS:", error);
+    logger.error("Error syncing block order", {
+      error,
+      storyID,
+      chapterID,
+      blockCount: blockList.blocks.length,
+    });
+    throw error;
   }
 };

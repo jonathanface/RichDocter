@@ -11,6 +11,7 @@ application
 dist
 vite.config.js
 coverage/
+coverage.html
 
 # Test binary, build with `go test -c`
 *.test
@@ -50,3 +51,4 @@ yarn-error.log*
 .aider*
 bootstrap
 bin/richdocter
+richdocter

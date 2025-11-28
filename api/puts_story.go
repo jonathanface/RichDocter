@@ -3,9 +3,11 @@ package api
 import (
 	ctxkey "RichDocter/ctxkeys"
 	"RichDocter/daos"
+	"RichDocter/logger"
 	"RichDocter/models"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,6 +21,57 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/gorilla/mux"
 )
+
+// deleteS3Image deletes an image from S3 given its full URL
+// Returns nil if successful or if the URL is empty/default
+func deleteS3Image(imageURL, bucket string) error {
+	if imageURL == "" {
+		return nil
+	}
+
+	// Don't delete default images
+	if strings.Contains(imageURL, "default") {
+		logger.Debug("Skipping deletion of default image", "url", imageURL)
+		return nil
+	}
+
+	// Extract the key (filename) from the URL
+	// URL format: https://bucket.s3.region.amazonaws.com/filename
+	parts := strings.Split(imageURL, "/")
+	if len(parts) < 4 {
+		logger.Warn("Invalid S3 URL format, skipping deletion", "url", imageURL)
+		return nil
+	}
+	key := parts[len(parts)-1]
+
+	// Load AWS config
+	awsCfg, err := config.LoadDefaultConfig(context.TODO(), func(opts *config.LoadOptions) error {
+		opts.Region = os.Getenv("AWS_REGION")
+		return nil
+	})
+	if err != nil {
+		logger.Error("Failed to load AWS config for S3 deletion", "error", err)
+		return err
+	}
+
+	s3Client := s3.NewFromConfig(awsCfg)
+	_, err = s3Client.DeleteObject(context.Background(), &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		logger.Error("Failed to delete S3 image",
+			"error", err,
+			"bucket", bucket,
+			"key", key)
+		return err
+	}
+
+	logger.Info("Successfully deleted old S3 image",
+		"bucket", bucket,
+		"key", key)
+	return nil
+}
 
 func EditSeriesEndpoint(w http.ResponseWriter, r *http.Request) {
 	var (
@@ -94,7 +147,7 @@ func EditSeriesEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	const maxFileSize = 1024 * 1024 // 1 MB
+	const maxFileSize = 5 * 1024 * 1024 // 5 MB
 	// image upload
 	err = r.ParseMultipartForm(10 << 20)
 	if err != nil {
@@ -110,11 +163,18 @@ func EditSeriesEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if file != nil {
-		// TODO delete previous image
 		defer file.Close()
 
+		// Delete the old image before uploading the new one
+		if err := deleteS3Image(series.ImageURL, S3_SERIES_IMAGE_BUCKET); err != nil {
+			logger.Warn("Failed to delete old series image, continuing with upload",
+				"error", err,
+				"seriesId", seriesID,
+				"oldImageURL", series.ImageURL)
+		}
+
 		if handler.Size < 0 || handler.Size > maxFileSize {
-			RespondWithError(w, http.StatusBadRequest, "File size exceeds allowed limit")
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("File size exceeds allowed limit of %dMB", maxFileSize/(1024*1024)))
 			return
 		}
 		allowedTypes := []string{"image/jpeg", "image/png", "image/gif"}
@@ -148,7 +208,7 @@ func EditSeriesEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		// Check the size of the scaled image
 		if scaledImageBuf.Len() > maxFileSize {
-			RespondWithError(w, http.StatusBadRequest, "Filesize must be < 1MB")
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Filesize must be < %dMB", maxFileSize/(1024*1024)))
 			return
 		}
 
@@ -291,16 +351,18 @@ func EditStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(strings.TrimSpace(r.FormValue("title"))) > 0 {
 		story.Title = strings.TrimSpace(r.FormValue("title"))
-		if story.Title == "" {
-			RespondWithError(w, http.StatusBadRequest, "Missing story name")
+		// Validate title (matches frontend validation)
+		if err := ValidateStoryTitle(story.Title); err != nil {
+			RespondWithError(w, http.StatusBadRequest, err.Message)
 			return
 		}
 	}
 
 	if len(strings.TrimSpace(r.FormValue("description"))) > 0 {
 		story.Description = strings.TrimSpace(r.FormValue("description"))
-		if story.Description == "" {
-			RespondWithError(w, http.StatusBadRequest, "Missing story description")
+		// Validate description (matches frontend validation)
+		if err := ValidateStoryDescription(story.Description); err != nil {
+			RespondWithError(w, http.StatusBadRequest, err.Message)
 			return
 		}
 	}
@@ -313,7 +375,7 @@ func EditStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 		story.SeriesID = ""
 	}
 
-	const maxFileSize = 1024 * 1024 // 1 MB
+	const maxFileSize = 5 * 1024 * 1024 // 5 MB
 	// image upload
 	err = r.ParseMultipartForm(10 << 20)
 	if err != nil {
@@ -329,12 +391,19 @@ func EditStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if file != nil {
-		// TODO delete previous image
 		defer file.Close()
+
+		// Delete the old image before uploading the new one
+		if err := deleteS3Image(story.ImageURL, S3_STORY_IMAGE_BUCKET); err != nil {
+			logger.Warn("Failed to delete old story image, continuing with upload",
+				"error", err,
+				"storyId", storyID,
+				"oldImageURL", story.ImageURL)
+		}
 
 		allowedTypes := []string{"image/jpeg", "image/png", "image/gif"}
 		if handler.Size < 0 || handler.Size > int64(maxFileSize) {
-			RespondWithError(w, http.StatusBadRequest, "File is too large")
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("File size exceeds allowed limit of %dMB", maxFileSize/(1024*1024)))
 			return
 		}
 		fileBytes := make([]byte, handler.Size)
@@ -367,7 +436,7 @@ func EditStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		// Check the size of the scaled image
 		if scaledImageBuf.Len() > maxFileSize {
-			RespondWithError(w, http.StatusBadRequest, "Filesize must be < 1MB")
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Filesize must be < %dMB", maxFileSize/(1024*1024)))
 			return
 		}
 

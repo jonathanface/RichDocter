@@ -39,13 +39,21 @@ func CallbackHandler(options OauthOptions) http.HandlerFunc {
 	}
 }
 
-func determineName(info goth.User) string {
+func determineFirstName(info goth.User) string {
 	name := info.FirstName
 	if name == "" {
-		name = info.Name
+		name = info.NickName
 	}
 	if name == "" {
-		name = info.NickName
+		name = "Unknown"
+	}
+	return name
+}
+
+func determineLastName(info goth.User) string {
+	name := info.LastName
+	if name == "" {
+		name = info.Name
 	}
 	if name == "" {
 		name = "Stranger"
@@ -104,7 +112,8 @@ func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOp
 	info := models.UserInfo{
 		AuthType:  mux.Vars(r)["provider"],
 		Email:     user.Email,
-		FirstName: determineName(user),
+		FirstName: determineFirstName(user),
+		LastName:  determineLastName(user),
 	}
 
 	dao, ok := r.Context().Value(ctxkey.DAO).(daos.DaoInterface)
@@ -130,6 +139,20 @@ func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOp
 		}
 	}
 
+	// Update user's name information from OAuth provider
+	if info.FirstName != "" || info.LastName != "" {
+		updateInfo := models.UserInfo{
+			Email:      info.Email,
+			FirstName:  info.FirstName,
+			LastName:   info.LastName,
+			Subscriber: userDetails.Subscriber,
+		}
+		if err := dao.UpdateUser(updateInfo); err != nil {
+			logger.Warn("Failed to update user name information", "error", err, "email", info.Email, "remoteAddr", r.RemoteAddr)
+			// Continue even if name update fails - not critical
+		}
+	}
+
 	toJSON, err := json.Marshal(info)
 	if err != nil {
 		logger.Error("Failed to marshal user info", "error", err, "email", info.Email, "remoteAddr", r.RemoteAddr)
@@ -139,9 +162,12 @@ func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOp
 
 	tokenSess, err := sessions.Get(r, "token")
 	if err != nil {
-		logger.Error("Failed to get token session", "error", err, "email", info.Email, "remoteAddr", r.RemoteAddr)
-		api.RespondWithError(w, http.StatusBadGateway, err.Error())
-		return
+		// Log the error but continue - gorilla/sessions returns a new valid session
+		// even when it can't decrypt the old cookie (e.g., after SESSION_SECRET change)
+		logger.Warn("Could not read existing token session, creating new one",
+			"error", err,
+			"email", info.Email,
+			"remoteAddr", r.RemoteAddr)
 	}
 	tokenSess.Values["token_data"] = toJSON
 

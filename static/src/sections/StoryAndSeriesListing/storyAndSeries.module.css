@@ -1,55 +1,173 @@
+/* Main Container */
 .listingPage {
-  color: #fff;
+  color: var(--text-primary);
   text-align: center;
+  min-height: calc(100vh - 100px);
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  background: var(--bg-body);
 }
 
-.createStoryButton {
-  display: flex;
-  text-align: center;
-  align-items: center;
-  margin-right: 20px;
-  margin-bottom: 20px;
-  width: 300px;
-  border: 1px solid #495960;
-  border-radius: 20px;
-  filter: drop-shadow(2px 2px 2px #1a1a1a);
-  min-height: 300px;
-}
-
+/* Section Header */
 .listingPage h2 {
   display: flex;
   align-items: center;
   text-align: left;
-  max-width: 1024px;
-  filter: drop-shadow(2px 2px 2px #1a1a1a);
-  margin: 60px auto;
-  margin-bottom: 10px;
-  padding-left: 20px;
-  padding-right: 20px;
+  max-width: 1400px;
+  margin: 0 auto var(--spacing-xl) auto;
+  padding: 0 var(--spacing-lg);
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
+/* Cards Grid Container */
 .listingPage .iconBox {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--spacing-xl);
+  max-width: 1400px;
   margin: 0 auto;
-  max-width: 1024px;
-  flex-wrap: wrap;
-  padding-left: 20px;
-  padding-right: 20px;
-  align-items: flex-start;
+  padding: 0 var(--spacing-lg);
+  align-items: start;
 }
 
+/* Create Story Button */
+.createStoryButton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 450px;
+  background: var(--bg-card);
+  border: 2px dashed var(--border-medium);
+  border-radius: var(--radius-xl);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.createStoryButton::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.1) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.createStoryButton:hover {
+  transform: translateY(-8px);
+  border-color: rgba(0, 122, 255, 0.5);
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.1) 0%, rgba(0, 122, 255, 0.05) 100%);
+  box-shadow: 0 20px 40px -10px rgba(0, 122, 255, 0.3);
+}
+
+.createStoryButton:hover::before {
+  opacity: 1;
+}
+
+.createStoryButton :global(.MuiIconButton-root) {
+  position: relative;
+  z-index: 1;
+  transition: all 0.3s ease;
+}
+
+.createStoryButton:hover :global(.MuiIconButton-root) {
+  transform: scale(1.1) rotate(90deg);
+}
+
+/* Logo Container */
 .listingPage .logoContainer {
-  margin-top: 100px;
+  margin-top: var(--spacing-2xl);
+  padding-top: var(--spacing-2xl);
   text-align: center;
+  opacity: 0.6;
+  transition: opacity 0.3s ease;
 }
 
-@media only screen and (max-width: 600px) {
-  .createStoryButton {
-    width: 100%;
-    margin-right: 0px;
+.listingPage .logoContainer:hover {
+  opacity: 0.8;
+}
+
+.listingPage .logoContainer img {
+  max-width: 200px;
+  height: auto;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+}
+
+/* Mobile Responsive Design */
+@media (max-width: 1024px) {
+  .listingPage {
+    padding: var(--spacing-xl) var(--spacing-md);
+  }
+
+  .listingPage h2 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-lg);
   }
 
   .listingPage .iconBox {
-    flex-direction: column;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacing-lg);
   }
+}
+
+@media (max-width: 768px) {
+  .listingPage {
+    padding: var(--spacing-lg) var(--spacing-sm);
+  }
+
+  .listingPage h2 {
+    font-size: 1.75rem;
+    padding: 0 var(--spacing-sm);
+  }
+
+  .listingPage .iconBox {
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: var(--spacing-md);
+    padding: 0 var(--spacing-sm);
+  }
+
+  .createStoryButton {
+    min-height: 400px;
+  }
+}
+
+@media (max-width: 600px) {
+  .listingPage h2 {
+    font-size: 1.5rem;
+  }
+
+  .listingPage .iconBox {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-lg);
+  }
+
+  .createStoryButton {
+    min-height: 350px;
+  }
+
+  .listingPage .logoContainer img {
+    max-width: 150px;
+  }
+}
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Disable tooltip animations */
+:global(.MuiTooltip-tooltip) {
+  transition: none !important;
+}
+
+:global(.MuiTooltip-popper) {
+  transition: none !important;
 }

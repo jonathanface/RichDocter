@@ -3,7 +3,9 @@ package main
 import (
 	"RichDocter/auth"
 	"RichDocter/daos"
+	"RichDocter/logger"
 	"RichDocter/models"
+	"RichDocter/sessions"
 	"context"
 	"os/signal"
 	"strconv"
@@ -68,11 +70,18 @@ func main() {
 	version := getenv("VERSION", DEFAULT_VERSION)
 	stripe.Key = getenv("STRIPE_SECRET", "")
 
+	// Initialize and validate session store
+	if err := sessions.Initialize(); err != nil {
+		log.Fatalf("Failed to initialize sessions: %v", err)
+	}
+
 	initCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	awsRegion := getenv("AWS_REGION", DEFAULT_AWS_REGION)
+	logger.Info("Initializing DAO", "region", awsRegion)
 	daoOptions := daos.Options{
-		Region:                     getenv("AWS_REGION", DEFAULT_AWS_REGION),
+		Region:                     awsRegion,
 		MaxRetries:                 DEFAULT_MAX_RETRIES,
 		BlockTableMinWriteCapacity: DEFAULT_AWS_BLOCK_WRITE_CAPACITY,
 		WriteBatchSize:             DEFAULT_DYNAMO_WRITE_BATCH_SIZE,
@@ -81,6 +90,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to initialize DAO: %v", err)
 	}
+	logger.Info("DAO initialized successfully")
 
 	authOptions := auth.OauthOptions{
 		GoogleId:     getenv("GOOGLE_OAUTH_CLIENT_ID", ""),

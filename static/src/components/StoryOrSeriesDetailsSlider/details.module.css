@@ -18,6 +18,7 @@
     visibility: hidden;
     opacity: 0;
     cursor: pointer;
+    pointer-events: none;
 }
 
 .detailsSlider .detailsTitle {
@@ -28,6 +29,7 @@
 
 .detailsSlider .detailsDescription {
     font-size: 0.7rem;
+    color: #e0e0e0;
 }
 
 .detailsSlider .detailsTitle h4 {
@@ -36,6 +38,7 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     margin: 0px;
+    color: #ffffff;
 }
 
 .detailsSlider .seriesListing>div {
@@ -52,6 +55,7 @@
     line-height: 1.25rem;
     margin: 0;
     padding-left: 20px;
+    color: #e0e0e0;
 }
 
 .detailsSlider .seriesListing li {
@@ -78,6 +82,7 @@
     margin-top: -150px;
     opacity: 1;
     visibility: visible;
+    pointer-events: auto;
 }
 
 .detailsSlider .avatars {

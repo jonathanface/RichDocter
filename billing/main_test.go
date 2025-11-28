@@ -25,7 +25,7 @@ func TestSubscribeCustomerEndpoint(t *testing.T) {
 		ensureCustomerFn = ensureCustomer
 	})
 	getUserEmailFn = func(r *http.Request) (string, error) { return "user@example.com", nil }
-	ensureCustomerFn = func(u *models.UserInfo, s *models.Subscription) string { return "cus_123" }
+	ensureCustomerFn = func(u *models.UserInfo, s *models.Subscription) (string, error) { return "cus_123", nil }
 
 	daoMock := daos.NewMockDAO()
 	daoMock.MockGetUserDetails = func(email string) (*models.UserInfo, error) {
@@ -75,6 +75,13 @@ func TestSubscribeCustomerEndpoint(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			// Suppress Stripe SDK error logs for test cases expecting errors
+			if c.spec.CreateSubShouldError {
+				origStderr := os.Stderr
+				os.Stderr, _ = os.Open(os.DevNull)
+				defer func() { os.Stderr = origStderr }()
+			}
+
 			srv := newStripeServer(t, c.spec)
 			defer srv.Close()
 			restore := setStripeBackendToServer(t, srv)
@@ -120,7 +127,7 @@ func TestBillingSummaryEndpoint(t *testing.T) {
 	t.Cleanup(func() { getUserEmailFn = getUserEmail; ensureCustomerFn = ensureCustomer })
 
 	getUserEmailFn = func(r *http.Request) (string, error) { return "user@example.com", nil }
-	ensureCustomerFn = func(u *models.UserInfo, s *models.Subscription) string { return "cus_123" }
+	ensureCustomerFn = func(u *models.UserInfo, s *models.Subscription) (string, error) { return "cus_123", nil }
 
 	// Happy-path DAO
 	daoMock := daos.NewMockDAO()
@@ -268,7 +275,7 @@ func TestBillingSummaryEndpoint(t *testing.T) {
 func TestBillingPortalSessionEndpoint(t *testing.T) {
 	t.Cleanup(func() { getUserEmailFn = getUserEmail; ensureCustomerFn = ensureCustomer })
 	getUserEmailFn = func(r *http.Request) (string, error) { return "user@example.com", nil }
-	ensureCustomerFn = func(u *models.UserInfo, s *models.Subscription) string { return "cus_123" }
+	ensureCustomerFn = func(u *models.UserInfo, s *models.Subscription) (string, error) { return "cus_123", nil }
 
 	daoMock := daos.NewMockDAO()
 	daoMock.MockGetUserDetails = func(email string) (*models.UserInfo, error) {
@@ -336,6 +343,13 @@ func TestBillingPortalSessionEndpoint(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			// Suppress Stripe SDK error logs for test cases expecting errors
+			if c.spec.PortalShouldError || c.spec.CreateSubShouldError {
+				origStderr := os.Stderr
+				os.Stderr, _ = os.Open(os.DevNull)
+				defer func() { os.Stderr = origStderr }()
+			}
+
 			if c.userErr != nil {
 				getUserEmailFn = func(r *http.Request) (string, error) { return "", c.userErr }
 			} else {

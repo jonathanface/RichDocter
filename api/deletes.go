@@ -14,12 +14,16 @@ import (
 
 func DeleteBlocksFromStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 	var (
+		email   string
 		err     error
 		storyID string
 		dao     daos.DaoInterface
 		ok      bool
 	)
-
+	if email, err = getUserEmail(r); err != nil {
+		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if storyID, err = url.PathUnescape(mux.Vars(r)["storyID"]); err != nil {
 		RespondWithError(w, http.StatusInternalServerError, "Error parsing story name")
 		return
@@ -38,7 +42,12 @@ func DeleteBlocksFromStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
 		return
 	}
-	if err = dao.DeleteChapterParagraphs(storyID, &storyBlocks); err != nil {
+	// Verify the user owns this story before allowing deletion
+	if _, err = dao.GetStoryByID(r.Context(), email, storyID); err != nil {
+		RespondWithError(w, http.StatusForbidden, "You do not have permission to delete content from this story")
+		return
+	}
+	if err = dao.DeleteChapterParagraphs(r.Context(), storyID, &storyBlocks); err != nil {
 		if opErr, ok := err.(*smithy.OperationError); ok {
 			awsResponse := processAWSError(opErr)
 			if awsResponse.Code == 0 {
@@ -86,7 +95,7 @@ func DeleteAssociationsEndpoint(w http.ResponseWriter, r *http.Request) {
 		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
 		return
 	}
-	if err = dao.DeleteAssociations(email, storyID, associations); err != nil {
+	if err = dao.DeleteAssociations(r.Context(), email, storyID, associations); err != nil {
 		if opErr, ok := err.(*smithy.OperationError); ok {
 			awsResponse := processAWSError(opErr)
 			if awsResponse.Code == 0 {
@@ -104,12 +113,17 @@ func DeleteAssociationsEndpoint(w http.ResponseWriter, r *http.Request) {
 
 func DeleteChaptersEndpoint(w http.ResponseWriter, r *http.Request) {
 	var (
+		email     string
 		err       error
 		storyID   string
 		chapterID string
 		dao       daos.DaoInterface
 		ok        bool
 	)
+	if email, err = getUserEmail(r); err != nil {
+		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if storyID, err = url.PathUnescape(mux.Vars(r)["storyID"]); err != nil {
 		RespondWithError(w, http.StatusInternalServerError, "Error parsing story ID")
 		return
@@ -131,11 +145,16 @@ func DeleteChaptersEndpoint(w http.ResponseWriter, r *http.Request) {
 		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
 		return
 	}
+	// Verify the user owns this story before allowing chapter deletion
+	if _, err = dao.GetStoryByID(r.Context(), email, storyID); err != nil {
+		RespondWithError(w, http.StatusForbidden, "You do not have permission to delete chapters from this story")
+		return
+	}
 	var chapters []models.Chapter
 	chapter := models.Chapter{}
 	chapter.ID = chapterID
 	chapters = append(chapters, chapter)
-	if err = dao.DeleteChapters(storyID, chapters); err != nil {
+	if err = dao.DeleteChapters(r.Context(), storyID, chapters); err != nil {
 		if opErr, ok := err.(*smithy.OperationError); ok {
 			awsResponse := processAWSError(opErr)
 			if awsResponse.Code == 0 {
@@ -176,7 +195,7 @@ func DeleteStoryEndpoint(w http.ResponseWriter, r *http.Request) {
 		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
 		return
 	}
-	if err = dao.SoftDeleteStory(email, storyID, false); err != nil {
+	if err = dao.SoftDeleteStory(r.Context(), email, storyID, false); err != nil {
 		if opErr, ok := err.(*smithy.OperationError); ok {
 			awsResponse := processAWSError(opErr)
 			if awsResponse.Code == 0 {
@@ -219,12 +238,12 @@ func DeleteSeriesEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if series, err = dao.GetSeriesByID(email, seriesID); !ok {
+	if series, err = dao.GetSeriesByID(r.Context(), email, seriesID); !ok {
 		RespondWithError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
-	if err = dao.DeleteSeries(email, *series); err != nil {
+	if err = dao.DeleteSeries(r.Context(), email, *series); err != nil {
 		if opErr, ok := err.(*smithy.OperationError); ok {
 			awsResponse := processAWSError(opErr)
 			if awsResponse.Code == 0 {

@@ -666,33 +666,8 @@ export const ThreadWriter = () => {
           }
         );
 
-      // Handle empty CustomParagraphNodes
-      const unregisterCustomTransform = editorRef.current.registerNodeTransform(
-        CustomParagraphNode,
-        (node: CustomParagraphNode) => {
-          const existedBefore = !!previousNodeKeysRef.current.get(
-            node.getKeyId() ?? ""
-          );
-          if (node.getTextContent().trim() === "" && existedBefore) {
-            // Prevent redundant replacement of already empty nodes
-            const index = node.getIndexWithinParent();
-            if (index !== null) {
-              const id = node.getKeyId();
-              if (id) {
-                queueParagraphForSave(
-                  chapter.id,
-                  id,
-                  index.toString(),
-                  serializeWithChildren(node)
-                );
-              }
-            }
-          }
-        }
-      );
       return () => {
         unregisterParagraphTransform();
-        unregisterCustomTransform();
       };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -800,6 +775,8 @@ export const ThreadWriter = () => {
                   text: currentText,
                   place: index.toString(),
                 });
+                // Remove from pastedParagraphKeys after saving to prevent re-saving on subsequent onChange calls
+                pastedParagraphKeys.current.delete(id);
               }
             }
           }
@@ -896,6 +873,33 @@ export const ThreadWriter = () => {
               : storedAssociation
           )
         );
+
+        // Update all AssociationInlineNode instances in the editor with the new data
+        editorRef.current?.update(() => {
+          const root = $getRoot();
+          const updateNodes = (node: LexicalNode) => {
+            if ($isAssociationInlineNode(node)) {
+              if (node.getAssociationId() === assoc.association_id) {
+                // Create a new node with updated data
+                const newNode = new AssociationInlineNode(
+                  node.getTextContent(),
+                  assoc.association_id,
+                  assoc.short_description,
+                  assoc.association_type,
+                  assoc.portrait,
+                  node.__leftClickCallback,
+                  node.__rightClickCallback,
+                  node.getFormat(),
+                );
+                node.replace(newNode);
+              }
+            } else if ($isElementNode(node)) {
+              node.getChildren().forEach(updateNodes);
+            }
+          };
+          root.getChildren().forEach(updateNodes);
+        });
+
         // Reset after a delay to allow the update to complete
         setTimeout(() => {
           isProgrammaticChange.current = false;

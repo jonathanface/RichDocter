@@ -40,6 +40,7 @@ type MockDAO struct {
 	MockUpdateOutline                           func(outline models.OutlineRequest) (*models.OutlineResponse, error)
 	MockGetStoryByID                            func(email string, storyID string) (*models.Story, error)
 	MockGetSeriesByID                           func(email string, seriesID string) (*models.Series, error)
+	MockGetSeriesVolumes                        func(email string, seriesID string) ([]*models.Story, error)
 	MockGetStoryOrSeriesAssociationThumbnails   func(email, storyID string) ([]*models.SimplifiedAssociation, error)
 	MockIsStoryInASeries                        func(email string, storyID string) (string, error)
 	MockGetChapterParagraphs                    func(storyID string, chapterID string, key *map[string]types.AttributeValue) (*models.BlocksData, error)
@@ -53,6 +54,7 @@ type MockDAO struct {
 	MockDeleteSeries                            func(email string, series models.Series) error
 	MockGetChapterTableStatus                   func(storyID, chapterID string) (bool, error)
 	MockGetChapterByID                          func(chapterID string) (*models.Chapter, error)
+	MockWasStoryDeleted                         func(email, storyID string) (bool, error)
 }
 
 var _ DaoInterface = (*MockDAO)(nil)
@@ -323,6 +325,13 @@ func (m *MockDAO) GetSeriesByID(ctx context.Context, email string, seriesID stri
 	return m.DAO.GetSeriesByID(ctx, email, seriesID)
 }
 
+func (m *MockDAO) GetSeriesVolumes(ctx context.Context, email string, seriesID string) ([]*models.Story, error) {
+	if m.MockGetSeriesVolumes != nil {
+		return m.MockGetSeriesVolumes(email, seriesID)
+	}
+	return m.DAO.GetSeriesVolumes(ctx, email, seriesID)
+}
+
 func (m *MockDAO) GetStoryOrSeriesAssociationThumbnails(ctx context.Context, email, storyID string) ([]*models.SimplifiedAssociation, error) {
 	if m.MockGetStoryOrSeriesAssociationThumbnails != nil {
 		return m.MockGetStoryOrSeriesAssociationThumbnails(email, storyID)
@@ -412,6 +421,13 @@ func (m *MockDAO) GetChapterByID(ctx context.Context, chapterID string) (*models
 		return m.MockGetChapterByID(chapterID)
 	}
 	return m.DAO.GetChapterByID(ctx, chapterID)
+}
+
+func (m *MockDAO) WasStoryDeleted(ctx context.Context, email, storyID string) (bool, error) {
+	if m.MockWasStoryDeleted != nil {
+		return m.MockWasStoryDeleted(email, storyID)
+	}
+	return m.DAO.WasStoryDeleted(ctx, email, storyID)
 }
 
 func NewMockDAO() *MockDAO {

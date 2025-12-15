@@ -115,7 +115,7 @@ export const ThreadWriter = () => {
   const editorRef = useRef<LexicalEditor>(null);
   const isProgrammaticChange = useRef(false);
   const previousNodeKeysRef = useRef<
-    Map<string, { text: string; place: string }>
+    Map<string, { text: string; place: string; format: number }>
   >(new Map());
   const previousTextHashRef = useRef<string | null>(null);
   const pastedParagraphKeys = useRef(new Set<string>());
@@ -454,6 +454,7 @@ export const ThreadWriter = () => {
               previousNodeKeysRef.current.set(id, {
                 text: n.getTextContent(),
                 place: index.toString(),
+                format: n.getFormat(),
               });
           }
         });
@@ -736,9 +737,12 @@ export const ThreadWriter = () => {
                 newParagraphKeys.add(id);
               }
               const currentText = node.getTextContent();
+              const currentFormat = node.getFormat();
               const prevData = previousNodeKeysRef.current.get(id);
               const textHasChanged =
                 prevData === undefined || currentText !== prevData.text;
+              const formatHasChanged =
+                prevData === undefined || currentFormat !== prevData.format;
 
               // Add to paragraphsToSave if new, pasted, or selected
               const selection = $getSelection();
@@ -752,18 +756,14 @@ export const ThreadWriter = () => {
 
               const isSelected = id === selectedNodeKey;
               const isNew = newParagraphKeys.has(id);
-              const isEmpty = currentText.trim() === "";
 
-              // Don't save new paragraphs if they're empty, even if selected
-              // Only save once they have actual content
-              const shouldSkipNewEmpty = isNew && isEmpty;
-
+              // Allow saving empty paragraphs (blank lines) - user expectation
               if (
-                !shouldSkipNewEmpty &&
-                (pastedParagraphKeys.current.has(id) ||
-                  isNew ||
-                  isSelected ||
-                  textHasChanged)
+                pastedParagraphKeys.current.has(id) ||
+                isNew ||
+                isSelected ||
+                textHasChanged ||
+                formatHasChanged
               ) {
                 const serialized = serializeWithChildren(node);
                 paragraphsToSave.push({
@@ -774,6 +774,7 @@ export const ThreadWriter = () => {
                 previousNodeKeysRef.current.set(id, {
                   text: currentText,
                   place: index.toString(),
+                  format: currentFormat,
                 });
                 // Remove from pastedParagraphKeys after saving to prevent re-saving on subsequent onChange calls
                 pastedParagraphKeys.current.delete(id);

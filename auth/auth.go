@@ -9,9 +9,12 @@ import (
 	"RichDocter/sessions"
 	"database/sql"
 	"encoding/base64"
+	"encoding/gob"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -25,6 +28,11 @@ import (
 const (
 	oneDay = 24 * time.Hour
 )
+
+func init() {
+	// Register types for gob encoding in sessions
+	gob.Register(models.UserInfo{})
+}
 
 func New(options OauthOptions) {
 	gothic.Store = sessions.Store
@@ -203,19 +211,49 @@ func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOp
 	logger.Debug("Token session saved successfully", "email", info.Email, "remoteAddr", r.RemoteAddr)
 
 	frontend := options.FrontEndURL
+
+	// Determine mobile app scheme based on environment
+	// Check explicit USE_EXPO_GO flag first, then fall back to MODE
+	mobileScheme := "minidocter://auth/callback"
+	useExpoGo := strings.ToLower(os.Getenv("USE_EXPO_GO")) == "true"
+
+	if useExpoGo || options.Mode == models.ModeDevelopment {
+		// Use Expo Go for development - include the callback path
+		mobileScheme = "exp://192.168.1.74:8081/--/auth/callback" // Expo dev server with path
+		logger.Info("Using Expo Go scheme for development", "scheme", mobileScheme, "mode", options.Mode, "useExpoGo", useExpoGo)
+	} else {
+		// Use standalone app scheme for staging and production
+		logger.Info("Using standalone app scheme", "scheme", mobileScheme, "mode", options.Mode)
+	}
+
 	allowedOrigins := []string{
 		options.FrontEndURL,
-		"minidocter://auth", // Allow mobile app deep link
+		mobileScheme,
+		"minidocter://auth", // Always allow this for the mobile app's initial request
 	}
 	next := frontend
 	if rdx := r.URL.Query().Get("next"); rdx != "" {
 		logger.Info("Found next parameter in callback query", "next", rdx, "remoteAddr", r.RemoteAddr)
-		next = safeRedirect(rdx, frontend, allowedOrigins)
+
+		// If the redirect is to a mobile app scheme, override it with the environment-appropriate scheme
+		if strings.HasPrefix(rdx, "minidocter://") || strings.HasPrefix(rdx, "exp://") {
+			logger.Info("Overriding mobile redirect with environment scheme", "original", rdx, "override", mobileScheme)
+			next = mobileScheme
+		} else {
+			next = safeRedirect(rdx, frontend, allowedOrigins)
+		}
 		logger.Info("After safeRedirect from query", "next", next, "remoteAddr", r.RemoteAddr)
 	} else if loginSess, _ := sessions.Get(r, "login_referral"); loginSess != nil && !loginSess.IsNew {
 		if ref, _ := loginSess.Values["referrer"].(string); ref != "" {
 			logger.Info("Found referrer in login_referral session", "referrer", ref, "remoteAddr", r.RemoteAddr)
-			next = safeRedirect(ref, frontend, allowedOrigins)
+
+			// If the referrer is to a mobile app scheme, override it with the environment-appropriate scheme
+			if strings.HasPrefix(ref, "minidocter://") || strings.HasPrefix(ref, "exp://") {
+				logger.Info("Overriding mobile redirect with environment scheme", "original", ref, "override", mobileScheme)
+				next = mobileScheme
+			} else {
+				next = safeRedirect(ref, frontend, allowedOrigins)
+			}
 			logger.Info("After safeRedirect from session", "next", next, "frontend", frontend, "remoteAddr", r.RemoteAddr)
 		}
 		// Clear the one-time referral cookie now that we've used it
@@ -260,7 +298,7 @@ func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOp
 
 	// For mobile deep links, append the session token as a query parameter
 	// since mobile apps can't access browser cookies
-	if strings.HasPrefix(next, "minidocter://") {
+	if strings.HasPrefix(next, "minidocter://") || strings.HasPrefix(next, "exp://") {
 		tokenB64 := base64.URLEncoding.EncodeToString(toJSON)
 		separator := "?"
 		if strings.Contains(next, "?") {
@@ -268,9 +306,152 @@ func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOp
 		}
 		next = next + separator + "token=" + url.QueryEscape(tokenB64)
 		logger.Info("Appended token to mobile deep link", "email", info.Email)
+
+		// For mobile deep links, render an HTML page with JavaScript redirect
+		// because HTTP redirects to custom schemes don't work reliably in Chrome Custom Tabs
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting...</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 { color: #333; margin-bottom: 20px; }
+        p { color: #666; }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0%% { transform: rotate(0deg); }
+            100%% { transform: rotate(360deg); }
+        }
+        a {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Success!</h1>
+        <div class="spinner"></div>
+        <p>Returning to app...</p>
+        <p><a href="%s" id="deepLink">Tap here if not redirected automatically</a></p>
+    </div>
+    <script>
+        // Attempt redirect immediately
+        setTimeout(function() {
+            window.location.href = "%s";
+        }, 100);
+
+        // Also try clicking the link programmatically
+        setTimeout(function() {
+            document.getElementById('deepLink').click();
+        }, 500);
+    </script>
+</body>
+</html>`, next, next)
+		w.Write([]byte(html))
+		return
 	}
 
 	http.Redirect(w, r, next, http.StatusTemporaryRedirect)
+}
+
+// MobileSessionHandler exchanges a mobile token for a session token
+func MobileSessionHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get token from request body
+		var reqBody struct {
+			Token string `json:"token"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			logger.Error("Failed to decode mobile session request", "error", err)
+			api.RespondWithError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		// Decode the base64 token
+		tokenJSON, err := base64.URLEncoding.DecodeString(reqBody.Token)
+		if err != nil {
+			logger.Error("Failed to decode mobile token", "error", err)
+			api.RespondWithError(w, http.StatusBadRequest, "Invalid token")
+			return
+		}
+
+		// Parse the user data
+		var userData models.UserInfo
+		if err := json.Unmarshal(tokenJSON, &userData); err != nil {
+			logger.Error("Failed to unmarshal user data from token", "error", err)
+			api.RespondWithError(w, http.StatusBadRequest, "Invalid token format")
+			return
+		}
+
+		// Create a session and store the user data with a session token
+		sess, err := sessions.Get(r, "user_data")
+		if err != nil {
+			logger.Error("Failed to get user_data session", "error", err)
+			api.RespondWithError(w, http.StatusInternalServerError, "Failed to create session")
+			return
+		}
+
+		// Generate a unique session token for mobile
+		sessionToken := sessions.GenerateSessionToken()
+
+		// Store user data in session with the token
+		sess.Values["user"] = userData
+		sess.Values["mobile_token"] = sessionToken
+		sess.Options = sessions.OptionsFor(r)
+
+		if err := sess.Save(r, w); err != nil {
+			logger.Error("Failed to save user_data session", "error", err)
+			api.RespondWithError(w, http.StatusInternalServerError, "Failed to save session")
+			return
+		}
+
+		// Also store the token -> user data mapping for header-based auth
+		sessions.StoreTokenMapping(sessionToken, userData)
+
+		logger.Info("Mobile session created", "email", userData.Email, "token", sessionToken[:8]+"...")
+
+		// Return success with session token
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
+			"user":         userData,
+			"sessionToken": sessionToken,
+		})
+	}
 }
 
 func LoginHandler(options OauthOptions) http.HandlerFunc {
@@ -316,6 +497,20 @@ func loginWithOptions(w http.ResponseWriter, r *http.Request, options OauthOptio
 func Logout(w http.ResponseWriter, r *http.Request) {
 	logger.Info("Logout initiated", "remoteAddr", r.RemoteAddr)
 
+	// Check for mobile token-based auth
+	authHeader := r.Header.Get("Authorization")
+	if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+		sessionToken := after
+		logger.Info("Logging out mobile session")
+
+		// Delete the token from the token map
+		sessions.DeleteTokenMapping(sessionToken)
+		logger.Info("Mobile logout successful")
+		api.RespondWithJson(w, http.StatusOK, nil)
+		return
+	}
+
+	// Fall back to cookie-based logout for web
 	if err := sessions.Delete(w, r, "token"); err != nil {
 		logger.Error("Failed to delete token session during logout", "error", err, "remoteAddr", r.RemoteAddr)
 		api.RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -324,6 +519,6 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 	_ = sessions.Delete(w, r, "login_referral") // clear if exists
 	_ = gothic.Logout(w, r)
 
-	logger.Info("Logout successful", "remoteAddr", r.RemoteAddr)
+	logger.Info("Web logout successful", "remoteAddr", r.RemoteAddr)
 	api.RespondWithJson(w, http.StatusOK, nil)
 }

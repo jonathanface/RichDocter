@@ -119,24 +119,62 @@ func (d *DAO) UpdateSubscription(ctx context.Context, sub models.Subscription) e
 }
 
 func (d *DAO) GetEmailByCustomerId(ctx context.Context, custId string) (string, error) {
-	logger.Debug("Looking up email by customer ID", "customerId", custId)
+	tableName := "subscriptions" + GetTableSuffix()
+	logger.Debug("Looking up email by customer ID",
+		"customerId", custId,
+		"tableName", tableName)
 
-	out, err := d.DynamoClient.Scan(ctx, &dynamodb.ScanInput{
-		TableName:        aws.String("subscriptions" + GetTableSuffix()),
-		FilterExpression: aws.String("customer_id = :c"), // make sure matches your schema
+	// Use Query on the GSI instead of Scan
+	out, err := d.DynamoClient.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(tableName),
+		IndexName:              aws.String("customer-id-index"),
+		KeyConditionExpression: aws.String("customer_id = :c"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":c": &types.AttributeValueMemberS{Value: custId},
 		},
 		Limit: aws.Int32(1),
 	})
 	if err != nil {
-		logger.Error("Failed to scan subscriptions by customer ID",
+		logger.Error("Failed to query subscriptions by customer ID",
 			"error", err,
-			"customerId", custId)
+			"customerId", custId,
+			"tableName", tableName,
+			"indexName", "customer-id-index")
 		return "", err
 	}
+	logger.Info("Query completed",
+		"customerId", custId,
+		"itemsFound", len(out.Items),
+		"tableName", tableName,
+		"indexName", "customer-id-index")
+
+	// If query found nothing, try dumping all items in the table (for debugging)
 	if len(out.Items) == 0 {
-		logger.Warn("No subscription found for customer ID", "customerId", custId)
+		logger.Warn("Query returned no items, attempting scan for debugging")
+		scanOut, scanErr := d.DynamoClient.Scan(ctx, &dynamodb.ScanInput{
+			TableName: aws.String(tableName),
+			Limit:     aws.Int32(5),
+		})
+		if scanErr == nil && len(scanOut.Items) > 0 {
+			logger.Info("Sample items from table",
+				"tableName", tableName,
+				"sampleCount", len(scanOut.Items))
+			for i, item := range scanOut.Items {
+				if emailAttr, ok := item["email"].(*types.AttributeValueMemberS); ok {
+					if custAttr, ok := item["customer_id"].(*types.AttributeValueMemberS); ok {
+						logger.Info("Sample item",
+							"index", i,
+							"email", emailAttr.Value,
+							"customerId", custAttr.Value)
+					}
+				}
+			}
+		}
+	}
+	if len(out.Items) == 0 {
+		logger.Warn("No subscription found for customer ID",
+			"customerId", custId,
+			"tableName", tableName)
 		return "", fmt.Errorf("no subscription found for customer %s", custId)
 	}
 

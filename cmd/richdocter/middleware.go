@@ -4,10 +4,7 @@ import (
 	"RichDocter/api"
 	ctxkey "RichDocter/ctxkeys"
 	"RichDocter/daos"
-	"RichDocter/models"
-	"RichDocter/sessions"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -141,16 +138,18 @@ func looseMiddleware(d daos.DaoInterface) func(http.Handler) http.Handler {
 func billingMiddleware(d daos.DaoInterface) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token, err := sessions.Get(r, "token")
-			if err != nil || token.IsNew {
-				api.RespondWithError(w, http.StatusUnauthorized, "cannot find token")
+			log.Printf("[billingMiddleware] %s %s", r.Method, r.URL.Path)
+
+			// Use the common auth helper
+			userPtr, err := api.GetAuthenticatedUser(r)
+			if err != nil {
+				log.Printf("[billingMiddleware] Authentication failed: %v", err)
+				api.RespondWithError(w, http.StatusUnauthorized, err.Error())
 				return
 			}
-			var user models.UserInfo
-			if err = json.Unmarshal(token.Values["token_data"].([]byte), &user); err != nil {
-				api.RespondWithError(w, http.StatusBadRequest, err.Error())
-				return
-			}
+			user := *userPtr
+			log.Printf("[billingMiddleware] Auth successful for user: %s", user.Email)
+
 			ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 			defer cancel()
 			ctx = context.WithValue(ctx, ctxkey.DAO, d)
@@ -162,37 +161,40 @@ func billingMiddleware(d daos.DaoInterface) func(http.Handler) http.Handler {
 func strictMiddleware(d daos.DaoInterface) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token, err := sessions.Get(r, "token")
-			if err != nil || token.IsNew {
-				api.RespondWithError(w, http.StatusUnauthorized, "cannot find token")
-				return
-			}
+			log.Printf("[strictMiddleware] %s %s", r.Method, r.URL.Path)
 
-			var user models.UserInfo
-			if err = json.Unmarshal(token.Values["token_data"].([]byte), &user); err != nil {
-				api.RespondWithError(w, http.StatusBadRequest, err.Error())
+			// Use the common auth helper
+			userPtr, err := api.GetAuthenticatedUser(r)
+			if err != nil {
+				log.Printf("[strictMiddleware] Authentication failed: %v", err)
+				api.RespondWithError(w, http.StatusUnauthorized, err.Error())
 				return
 			}
+			user := *userPtr
+			log.Printf("[strictMiddleware] Auth successful for user: %s", user.Email)
 
 			ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 			defer cancel()
 
 			userDetails, err := d.UpsertUser(ctx, user.Email)
 			if err != nil {
+				log.Printf("[strictMiddleware] Failed to upsert user %s: %v", user.Email, err)
 				api.RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("unable to update user %s", user.Email))
 				return
 			}
+			log.Printf("[strictMiddleware] User %s upserted, subscriber=%v", user.Email, userDetails.Subscriber)
 			ctx = context.WithValue(ctx, ctxkey.Subscriber, userDetails.Subscriber)
 			ctx = context.WithValue(ctx, ctxkey.DAO, d)
 
 			// Only block exports for non-subscribers, not story creation
 			needsSub := (r.Method == "PUT" && strings.HasSuffix(r.URL.Path, "/export"))
-			log.Println("subbed", needsSub, userDetails.Subscriber)
 			if needsSub && !userDetails.Subscriber {
+				log.Printf("[strictMiddleware] Blocking export for non-subscriber: %s", user.Email)
 				api.RespondWithError(w, http.StatusPaymentRequired, "insufficient subscription")
 				return
 			}
 
+			log.Printf("[strictMiddleware] Auth complete, proceeding to handler")
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

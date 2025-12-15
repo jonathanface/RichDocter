@@ -41,6 +41,15 @@ export const AccountSubscriptionPage = () => {
   }, []);
 
   const status = data?.status || "none";
+  const cancelAtPeriodEnd = data?.cancelAtPeriodEnd || false;
+  const hasExpiredSubscription =
+    status === "canceled" ||
+    status === "incomplete_expired" ||
+    status === "unpaid";
+  const hasActiveSubscription = status === "active" || status === "trialing";
+  const hasIncompleteSubscription = status === "incomplete";
+  const hasNeverSubscribed = status === "none";
+  const isScheduledToCancel = hasActiveSubscription && cancelAtPeriodEnd;
 
   const openPortal = async () => {
     try {
@@ -54,6 +63,31 @@ export const AccountSubscriptionPage = () => {
       console.error("Failed to open portal:", err);
       setError("Could not open billing portal");
     }
+  };
+
+  const handleSubscribe = () => {
+    navigate("/subscribe");
+  };
+
+  const getStatusColor = () => {
+    if (hasActiveSubscription) return "success";
+    if (hasIncompleteSubscription) return "info";
+    if (hasExpiredSubscription) return "warning";
+    return "default";
+  };
+
+  const getButtonText = () => {
+    if (hasNeverSubscribed) return "JOIN NOW";
+    if (hasIncompleteSubscription) return "COMPLETE PAYMENT";
+    if (hasExpiredSubscription) return "REACTIVATE";
+    return "MANAGE BILLING";
+  };
+
+  const getButtonAction = () => {
+    if (hasNeverSubscribed || hasExpiredSubscription || hasIncompleteSubscription) {
+      return handleSubscribe; // All need to go through checkout
+    }
+    return openPortal; // Only active subscriptions can manage via portal
   };
 
   return (
@@ -107,18 +141,67 @@ export const AccountSubscriptionPage = () => {
         ) : (
           <Chip
             label={status.toUpperCase()}
-            color={
-              status === "active" || status === "trialing"
-                ? "success"
-                : "default"
-            }
+            color={getStatusColor() as "success" | "warning" | "default"}
             sx={{ mb: 2 }}
           />
         )}
 
-        <Typography sx={{ fontSize: { xs: "0.9rem", sm: "1rem" } }}>
+        <Typography sx={{ fontSize: { xs: "0.9rem", sm: "1rem" }, mb: 1 }}>
           $5/month • cancel anytime
         </Typography>
+
+        {isScheduledToCancel && data?.currentPeriodEnd && (
+          <Typography
+            sx={{
+              fontSize: { xs: "0.85rem", sm: "0.9rem" },
+              color: "warning.main",
+              mb: 2,
+            }}
+          >
+            Your subscription will end on{" "}
+            {new Date(data.currentPeriodEnd).toLocaleDateString()}. You can
+            reactivate anytime before then.
+          </Typography>
+        )}
+
+        {hasIncompleteSubscription && (
+          <Typography
+            sx={{
+              fontSize: { xs: "0.85rem", sm: "0.9rem" },
+              color: "info.main",
+              mb: 2,
+            }}
+          >
+            Your payment is being processed. Complete payment to activate your
+            subscription.
+          </Typography>
+        )}
+
+        {hasExpiredSubscription && (
+          <Typography
+            sx={{
+              fontSize: { xs: "0.85rem", sm: "0.9rem" },
+              color: "warning.main",
+              mb: 2,
+            }}
+          >
+            Your subscription has expired. Reactivate to restore access to
+            premium features.
+          </Typography>
+        )}
+
+        {hasNeverSubscribed && (
+          <Typography
+            sx={{
+              fontSize: { xs: "0.85rem", sm: "0.9rem" },
+              color: "text.secondary",
+              mb: 2,
+            }}
+          >
+            Get unlimited documents, unlimited associations, and export your
+            stories to multiple formats.
+          </Typography>
+        )}
 
         <Button
           variant="outlined"
@@ -128,16 +211,10 @@ export const AccountSubscriptionPage = () => {
             fontSize: { xs: "0.9rem", sm: "1rem" },
             py: { xs: 1.5, sm: 1 },
           }}
-          onClick={
-            status.toUpperCase() !== "NONE"
-              ? openPortal
-              : () => {
-                  window.location.assign("/subscribe");
-                }
-          }
+          onClick={getButtonAction()}
           disabled={loading || !!error}
         >
-          {status.toUpperCase() === "NONE" ? "JOIN NOW" : "MANAGE BILLING"}
+          {getButtonText()}
         </Button>
       </Container>
     </Box>

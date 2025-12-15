@@ -2,16 +2,28 @@
 package sessions
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	gsessions "github.com/gorilla/sessions"
 )
 
 var Store *gsessions.CookieStore
+
+// tokenMap stores mobile session tokens -> user data
+var tokenMap sync.Map
+
+// tokenData holds user information for mobile sessions
+type tokenData struct {
+	UserInfo interface{}
+}
 
 // Initialize validates and initializes the session store. Must be called at startup.
 func Initialize() error {
@@ -72,4 +84,40 @@ func Delete(w http.ResponseWriter, r *http.Request, key string) error {
 	}
 
 	return nil
+}
+
+// GenerateSessionToken creates a cryptographically random session token
+func GenerateSessionToken() string {
+	b := make([]byte, 32) // 256 bits
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // Should never happen
+	}
+	return hex.EncodeToString(b)
+}
+
+// StoreTokenMapping stores a mobile token -> user data mapping
+func StoreTokenMapping(token string, userInfo interface{}) {
+	tokenMap.Store(token, &tokenData{UserInfo: userInfo})
+}
+
+// GetUserByToken retrieves the user data for a mobile token
+func GetUserByToken(token string) (interface{}, bool) {
+
+	val, ok := tokenMap.Load(token)
+	if !ok {
+		log.Printf("[sessions] Token not found in map")
+		return nil, false
+	}
+	data, ok := val.(*tokenData)
+	if !ok {
+		log.Printf("[sessions] Invalid data format for token")
+		return nil, false
+	}
+	log.Printf("[sessions] Token found in map")
+	return data.UserInfo, true
+}
+
+// DeleteTokenMapping removes a token mapping (for logout)
+func DeleteTokenMapping(token string) {
+	tokenMap.Delete(token)
 }

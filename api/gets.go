@@ -14,12 +14,17 @@ import (
 
 func ChapterTableStatusEndpoint(w http.ResponseWriter, r *http.Request) {
 	var (
+		email              string
 		storyID, chapterID string
 		err                error
 		dao                daos.DaoInterface
 		ok                 bool
 	)
 
+	if email, err = getUserEmail(r); err != nil {
+		RespondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
 	if storyID, err = url.PathUnescape(mux.Vars(r)["storyID"]); err != nil {
 		RespondWithError(w, http.StatusInternalServerError, "Error parsing story ID")
 		return
@@ -38,6 +43,15 @@ func ChapterTableStatusEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	if dao, ok = r.Context().Value(ctxkey.DAO).(daos.DaoInterface); !ok {
 		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
+		return
+	}
+	// Verify the user owns this story before returning chapter status
+	if _, err = dao.GetStoryByID(r.Context(), email, storyID); err != nil {
+		if err == sql.ErrNoRows {
+			RespondWithError(w, http.StatusNotFound, "story not found")
+			return
+		}
+		RespondWithError(w, http.StatusForbidden, "You do not have permission to access this story")
 		return
 	}
 	isTableReady, err := dao.GetChapterTableStatus(r.Context(), storyID, chapterID)
@@ -54,12 +68,17 @@ func ChapterTableStatusEndpoint(w http.ResponseWriter, r *http.Request) {
 
 func ChapterDetailsEndpoint(w http.ResponseWriter, r *http.Request) {
 	var (
+		email              string
 		storyID, chapterID string
 		err                error
 		dao                daos.DaoInterface
 		ok                 bool
 	)
 
+	if email, err = getUserEmail(r); err != nil {
+		RespondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
 	if storyID, err = url.PathUnescape(mux.Vars(r)["storyID"]); err != nil {
 		RespondWithError(w, http.StatusInternalServerError, "Error parsing story ID")
 		return
@@ -78,6 +97,15 @@ func ChapterDetailsEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	if dao, ok = r.Context().Value(ctxkey.DAO).(daos.DaoInterface); !ok {
 		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
+		return
+	}
+	// Verify the user owns this story before returning chapter details
+	if _, err = dao.GetStoryByID(r.Context(), email, storyID); err != nil {
+		if err == sql.ErrNoRows {
+			RespondWithError(w, http.StatusNotFound, "story not found")
+			return
+		}
+		RespondWithError(w, http.StatusForbidden, "You do not have permission to access this story")
 		return
 	}
 	var chapter *models.Chapter
@@ -596,4 +624,44 @@ func GetUserData(w http.ResponseWriter, r *http.Request) {
 
 	// Return the fresh details from database (not the cached session data)
 	RespondWithJson(w, http.StatusOK, details)
+}
+
+// AdminGetAllUsersEndpoint returns all users with their stories (admin only)
+func AdminGetAllUsersEndpoint(w http.ResponseWriter, r *http.Request) {
+	var (
+		email string
+		err   error
+		dao   daos.DaoInterface
+		ok    bool
+	)
+
+	if email, err = getUserEmail(r); err != nil {
+		RespondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	if dao, ok = r.Context().Value(ctxkey.DAO).(daos.DaoInterface); !ok {
+		RespondWithError(w, http.StatusInternalServerError, "unable to parse or retrieve dao from context")
+		return
+	}
+
+	// Check if requesting user is an admin
+	userDetails, err := dao.GetUserDetails(r.Context(), email)
+	if err != nil {
+		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !userDetails.Admin {
+		RespondWithError(w, http.StatusForbidden, "admin access required")
+		return
+	}
+
+	// Get all users with their stories
+	users, err := dao.GetAllUsersWithStories(r.Context())
+	if err != nil {
+		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	RespondWithJson(w, http.StatusOK, users)
 }

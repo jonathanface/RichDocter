@@ -13,11 +13,13 @@ import { useToaster } from "./hooks/useToaster";
 
 import { CreateOrEditStory } from "./sections/CreateOrEditStory";
 import { Footer } from "./components/Footer";
+import { MobileAppBanner } from "./components/MobileAppBanner";
 import { SubscribePage } from "./sections/Payment/Subscribe";
 import { CheckoutPage } from "./sections/Payment/Checkout";
 import { SuccessPage } from "./sections/Payment/Success";
 import { AccountSubscriptionPage } from "./sections/Payment/AccountSubscription";
 import { NotFoundPage } from "./sections/NotFound";
+import { AdminArea } from "./sections/AdminArea";
 import {
   AlertCommandType,
   AlertFunctionCall,
@@ -29,12 +31,6 @@ export const Docter = () => {
   const { isLoggedIn, userLoading } = useFetchUserData();
   const [searchParams] = useSearchParams();
 
-  useEffect(() => {
-    console.log("Docter mounted");
-    return () => {
-      console.log("Docter unmounted");
-    };
-  }, []);
 
   useEffect(() => {
     if (searchParams.get("restored") === "true") {
@@ -108,6 +104,7 @@ export const Docter = () => {
   return (
     <div className="App">
       <HeaderMenu />
+      <MobileAppBanner />
       <main>
         <Routes>
           <Route
@@ -185,6 +182,10 @@ export const Docter = () => {
           <Route
             path="/success"
             element={isLoggedIn ? <SuccessPage /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/admin"
+            element={isLoggedIn ? <AdminArea /> : <Navigate to="/" replace />}
           />
           {/* Catch-all 404 */}
           <Route path="*" element={<NotFoundPage isLoggedIn={isLoggedIn} />} />

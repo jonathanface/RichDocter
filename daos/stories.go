@@ -944,6 +944,78 @@ func (d *DAO) WriteBlocks(ctx context.Context, storyID string, storyBlocks *mode
 		}
 	}
 
+	// Step 4: Clean up orphaned blocks (exist in DB but not in incoming data)
+	incomingKeyIDs := make(map[string]bool, len(storyBlocks.Blocks))
+	for _, block := range storyBlocks.Blocks {
+		incomingKeyIDs[block.KeyID] = true
+	}
+
+	var orphanDeleteItems []types.TransactWriteItem
+	for _, existingItem := range existingItems {
+		keyID, ok := existingItem["key_id"].(*types.AttributeValueMemberS)
+		if !ok {
+			continue
+		}
+		if !incomingKeyIDs[keyID.Value] {
+			place, ok := existingItem["place"].(*types.AttributeValueMemberN)
+			if !ok {
+				continue
+			}
+			deleteKey := map[string]types.AttributeValue{
+				"composite_key": &types.AttributeValueMemberS{Value: compositeKey},
+				"place":         place,
+			}
+			orphanDeleteItems = append(orphanDeleteItems, types.TransactWriteItem{
+				Delete: &types.Delete{
+					TableName: aws.String(GetStoryBlocksTableName()),
+					Key:       deleteKey,
+				},
+			})
+			logger.Info("Cleaning up orphaned block",
+				"storyId", storyID,
+				"chapterId", storyBlocks.ChapterID,
+				"keyId", keyID.Value,
+				"place", place.Value)
+		}
+	}
+
+	if len(orphanDeleteItems) > 0 {
+		orphanBatchSize := batchSize
+		if orphanBatchSize == 0 {
+			orphanBatchSize = 25
+		}
+		for i := 0; i < len(orphanDeleteItems); i += orphanBatchSize {
+			end := i + orphanBatchSize
+			if end > len(orphanDeleteItems) {
+				end = len(orphanDeleteItems)
+			}
+			deleteInput := &dynamodb.TransactWriteItemsInput{
+				TransactItems: orphanDeleteItems[i:end],
+			}
+			awsErr, err := d.awsWriteTransaction(ctx, deleteInput)
+			if err != nil {
+				logger.Error("Orphan cleanup transaction failed",
+					"error", err,
+					"storyId", storyID,
+					"chapterId", storyBlocks.ChapterID)
+				return err
+			}
+			if !awsErr.IsNil() {
+				logger.Error("Orphan cleanup AWS error",
+					"awsCode", awsErr.Code,
+					"awsErrorType", awsErr.ErrorType,
+					"awsMessage", awsErr.Text,
+					"storyId", storyID,
+					"chapterId", storyBlocks.ChapterID)
+				return fmt.Errorf("--AWSERROR-- Code:%s, Type: %s, Message: %s", awsErr.Code, awsErr.ErrorType, awsErr.Text)
+			}
+		}
+		logger.Info("Orphan cleanup completed",
+			"storyId", storyID,
+			"chapterId", storyBlocks.ChapterID,
+			"orphansDeleted", len(orphanDeleteItems))
+	}
+
 	logger.Info("WriteBlocks completed successfully",
 		"storyId", storyID,
 		"chapterId", storyBlocks.ChapterID,

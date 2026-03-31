@@ -66,6 +66,39 @@ type MockDAO struct {
 	CheckTableStatusFunc                      func(tableName string) (string, error)
 	UpdateSubscriptionFunc                    func(subscription models.Subscription) error
 	CreateUserFunc                            func(email string) (*models.UserInfo, error)
+	CreateShareLinkFunc                       func(link models.ShareLink) error
+	GetShareLinkFunc                          func(token string) (*models.ShareLink, error)
+	GetShareLinksByAuthorFunc                 func(email, storyID string) ([]models.ShareLink, error)
+	GetShareLinksByStoryFunc                  func(storyID string) ([]models.ShareLink, error)
+	RevokeShareLinkFunc                       func(token string) error
+	RestoreShareLinkFunc                      func(token string) error
+	DeleteShareLinkFunc                       func(token string) error
+	CreateCommentFunc                         func(comment models.Comment) error
+	GetCommentFunc                            func(commentID string) (*models.Comment, error)
+	GetCommentsByShareTokenFunc               func(shareToken string) ([]models.Comment, error)
+	GetCommentsByStoryChapterFunc             func(storyID, chapterID string) ([]models.Comment, error)
+	ResolveCommentFunc                        func(commentID string) error
+	DeleteCommentFunc                         func(commentID string) error
+	DeleteUserFunc                            func(email string) error
+	GetAllUsersWithStoriesFunc                func() ([]models.AdminUserSummary, error)
+	GetChaptersByStoryIDsFunc                 func(storyIDs []string) (map[string][]models.Chapter, error)
+
+	// Alerts
+	CreateAlertFunc         func(alert models.Alert) error
+	GetAlertsForUserFunc    func(email string) ([]models.Alert, error)
+	GetAlertReadsByUserFunc func(email string) ([]models.AlertRead, error)
+	MarkAlertReadFunc       func(email, alertID string) error
+
+	// Email auth
+	CreateEmailUserFunc              func(email, firstName, lastName, passwordHash, verificationToken string, tokenExpires int64) (*models.UserInfo, error)
+	SetEmailVerifiedFunc             func(email string) error
+	SetVerificationTokenFunc         func(email, token string, expires int64) error
+	SetResetTokenFunc                func(email, token string, expires int64) error
+	UpdatePasswordFunc               func(email, passwordHash string) error
+	ClearResetTokenFunc              func(email string) error
+	LinkOAuthAccountFunc             func(email, authType string) error
+	FindUserByVerificationTokenFunc  func(token string) (*models.UserInfo, error)
+	FindUserByResetTokenFunc         func(token string) (*models.UserInfo, error)
 }
 
 // Note: We cannot enforce interface implementation at compile time due to unexported methods
@@ -522,6 +555,134 @@ func (m *MockDAO) awsWriteTransaction(writeItemsInput *dynamodb.TransactWriteIte
 	return models.AwsError{}, nil
 }
 
+// CreateShareLink mock implementation
+func (m *MockDAO) CreateShareLink(link models.ShareLink) error {
+	if m.CreateShareLinkFunc != nil {
+		return m.CreateShareLinkFunc(link)
+	}
+	return nil
+}
+
+// GetShareLink mock implementation
+func (m *MockDAO) GetShareLink(token string) (*models.ShareLink, error) {
+	if m.GetShareLinkFunc != nil {
+		return m.GetShareLinkFunc(token)
+	}
+	return &models.ShareLink{Token: token}, nil
+}
+
+// GetShareLinksByAuthor mock implementation
+func (m *MockDAO) GetShareLinksByAuthor(email, storyID string) ([]models.ShareLink, error) {
+	if m.GetShareLinksByAuthorFunc != nil {
+		return m.GetShareLinksByAuthorFunc(email, storyID)
+	}
+	return []models.ShareLink{}, nil
+}
+
+// GetShareLinksByStory mock implementation
+func (m *MockDAO) GetShareLinksByStory(storyID string) ([]models.ShareLink, error) {
+	if m.GetShareLinksByStoryFunc != nil {
+		return m.GetShareLinksByStoryFunc(storyID)
+	}
+	return []models.ShareLink{}, nil
+}
+
+// RevokeShareLink mock implementation
+func (m *MockDAO) RevokeShareLink(token string) error {
+	if m.RevokeShareLinkFunc != nil {
+		return m.RevokeShareLinkFunc(token)
+	}
+	return nil
+}
+
+// RestoreShareLink mock implementation
+func (m *MockDAO) RestoreShareLink(token string) error {
+	if m.RestoreShareLinkFunc != nil {
+		return m.RestoreShareLinkFunc(token)
+	}
+	return nil
+}
+
+// DeleteShareLink mock implementation
+func (m *MockDAO) DeleteShareLink(token string) error {
+	if m.DeleteShareLinkFunc != nil {
+		return m.DeleteShareLinkFunc(token)
+	}
+	return nil
+}
+
+// CreateComment mock implementation
+func (m *MockDAO) CreateComment(comment models.Comment) error {
+	if m.CreateCommentFunc != nil {
+		return m.CreateCommentFunc(comment)
+	}
+	return nil
+}
+
+// GetComment mock implementation
+func (m *MockDAO) GetComment(commentID string) (*models.Comment, error) {
+	if m.GetCommentFunc != nil {
+		return m.GetCommentFunc(commentID)
+	}
+	return &models.Comment{CommentID: commentID}, nil
+}
+
+// GetCommentsByShareToken mock implementation
+func (m *MockDAO) GetCommentsByShareToken(shareToken string) ([]models.Comment, error) {
+	if m.GetCommentsByShareTokenFunc != nil {
+		return m.GetCommentsByShareTokenFunc(shareToken)
+	}
+	return []models.Comment{}, nil
+}
+
+// GetCommentsByStoryChapter mock implementation
+func (m *MockDAO) GetCommentsByStoryChapter(storyID, chapterID string) ([]models.Comment, error) {
+	if m.GetCommentsByStoryChapterFunc != nil {
+		return m.GetCommentsByStoryChapterFunc(storyID, chapterID)
+	}
+	return []models.Comment{}, nil
+}
+
+// ResolveComment mock implementation
+func (m *MockDAO) ResolveComment(commentID string) error {
+	if m.ResolveCommentFunc != nil {
+		return m.ResolveCommentFunc(commentID)
+	}
+	return nil
+}
+
+// DeleteComment mock implementation
+func (m *MockDAO) DeleteComment(commentID string) error {
+	if m.DeleteCommentFunc != nil {
+		return m.DeleteCommentFunc(commentID)
+	}
+	return nil
+}
+
+// DeleteUser mock implementation
+func (m *MockDAO) DeleteUser(email string) error {
+	if m.DeleteUserFunc != nil {
+		return m.DeleteUserFunc(email)
+	}
+	return nil
+}
+
+// GetAllUsersWithStories mock implementation
+func (m *MockDAO) GetAllUsersWithStories() ([]models.AdminUserSummary, error) {
+	if m.GetAllUsersWithStoriesFunc != nil {
+		return m.GetAllUsersWithStoriesFunc()
+	}
+	return []models.AdminUserSummary{}, nil
+}
+
+// GetChaptersByStoryIDs mock implementation
+func (m *MockDAO) GetChaptersByStoryIDs(storyIDs []string) (map[string][]models.Chapter, error) {
+	if m.GetChaptersByStoryIDsFunc != nil {
+		return m.GetChaptersByStoryIDsFunc(storyIDs)
+	}
+	return map[string][]models.Chapter{}, nil
+}
+
 // Helper function to create a mock DAO with default error behavior
 func NewMockDAOWithError(err error) *MockDAO {
 	return &MockDAO{
@@ -547,6 +708,105 @@ func NewMockDAOWithError(err error) *MockDAO {
 			return err
 		},
 	}
+}
+
+// Email auth mock implementations
+
+func (m *MockDAO) CreateEmailUser(email, firstName, lastName, passwordHash, verificationToken string, tokenExpires int64) (*models.UserInfo, error) {
+	if m.CreateEmailUserFunc != nil {
+		return m.CreateEmailUserFunc(email, firstName, lastName, passwordHash, verificationToken, tokenExpires)
+	}
+	return &models.UserInfo{Email: email}, nil
+}
+
+func (m *MockDAO) SetEmailVerified(email string) error {
+	if m.SetEmailVerifiedFunc != nil {
+		return m.SetEmailVerifiedFunc(email)
+	}
+	return nil
+}
+
+func (m *MockDAO) SetVerificationToken(email, token string, expires int64) error {
+	if m.SetVerificationTokenFunc != nil {
+		return m.SetVerificationTokenFunc(email, token, expires)
+	}
+	return nil
+}
+
+func (m *MockDAO) SetResetToken(email, token string, expires int64) error {
+	if m.SetResetTokenFunc != nil {
+		return m.SetResetTokenFunc(email, token, expires)
+	}
+	return nil
+}
+
+func (m *MockDAO) UpdatePassword(email, passwordHash string) error {
+	if m.UpdatePasswordFunc != nil {
+		return m.UpdatePasswordFunc(email, passwordHash)
+	}
+	return nil
+}
+
+func (m *MockDAO) ClearResetToken(email string) error {
+	if m.ClearResetTokenFunc != nil {
+		return m.ClearResetTokenFunc(email)
+	}
+	return nil
+}
+
+func (m *MockDAO) LinkOAuthAccount(email, authType string) error {
+	if m.LinkOAuthAccountFunc != nil {
+		return m.LinkOAuthAccountFunc(email, authType)
+	}
+	return nil
+}
+
+func (m *MockDAO) FindUserByVerificationToken(token string) (*models.UserInfo, error) {
+	if m.FindUserByVerificationTokenFunc != nil {
+		return m.FindUserByVerificationTokenFunc(token)
+	}
+	return &models.UserInfo{}, nil
+}
+
+func (m *MockDAO) FindUserByResetToken(token string) (*models.UserInfo, error) {
+	if m.FindUserByResetTokenFunc != nil {
+		return m.FindUserByResetTokenFunc(token)
+	}
+	return &models.UserInfo{}, nil
+}
+
+func (m *MockDAO) RestoreDataForVerifiedUser(_ string) {
+	// no-op for tests
+}
+
+// Alert mock implementations
+
+func (m *MockDAO) CreateAlert(alert models.Alert) error {
+	if m.CreateAlertFunc != nil {
+		return m.CreateAlertFunc(alert)
+	}
+	return nil
+}
+
+func (m *MockDAO) GetAlertsForUser(email string) ([]models.Alert, error) {
+	if m.GetAlertsForUserFunc != nil {
+		return m.GetAlertsForUserFunc(email)
+	}
+	return []models.Alert{}, nil
+}
+
+func (m *MockDAO) GetAlertReadsByUser(email string) ([]models.AlertRead, error) {
+	if m.GetAlertReadsByUserFunc != nil {
+		return m.GetAlertReadsByUserFunc(email)
+	}
+	return []models.AlertRead{}, nil
+}
+
+func (m *MockDAO) MarkAlertRead(email, alertID string) error {
+	if m.MarkAlertReadFunc != nil {
+		return m.MarkAlertReadFunc(email, alertID)
+	}
+	return nil
 }
 
 // Common error for testing

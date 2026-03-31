@@ -57,6 +57,40 @@ type MockDAO struct {
 	MockGetChapterTableStatus                   func(storyID, chapterID string) (bool, error)
 	MockGetChapterByID                          func(chapterID string) (*models.Chapter, error)
 	MockWasStoryDeleted                         func(email, storyID string) (bool, error)
+
+	// Sharing
+	MockCreateShareLink        func(link models.ShareLink) error
+	MockGetShareLink           func(token string) (*models.ShareLink, error)
+	MockGetShareLinksByAuthor  func(email, storyID string) ([]models.ShareLink, error)
+	MockGetShareLinksByStory   func(storyID string) ([]models.ShareLink, error)
+	MockRevokeShareLink        func(token string) error
+	MockRestoreShareLink       func(token string) error
+	MockDeleteShareLink        func(token string) error
+
+	// Email/Password Auth
+	MockCreateEmailUser              func(email, firstName, lastName, passwordHash, verificationToken string, tokenExpires int64) (*models.UserInfo, error)
+	MockSetEmailVerified             func(email string) error
+	MockSetVerificationToken         func(email, token string, expires int64) error
+	MockSetResetToken                func(email, token string, expires int64) error
+	MockUpdatePassword               func(email, passwordHash string) error
+	MockClearResetToken              func(email string) error
+	MockLinkOAuthAccount             func(email, authType string) error
+	MockFindUserByVerificationToken  func(token string) (*models.UserInfo, error)
+	MockFindUserByResetToken         func(token string) (*models.UserInfo, error)
+
+	// Alerts
+	MockCreateAlert         func(alert models.Alert) error
+	MockGetAlertsForUser    func(email string) ([]models.Alert, error)
+	MockGetAlertReadsByUser func(email string) ([]models.AlertRead, error)
+	MockMarkAlertRead       func(email, alertID string) error
+
+	// Comments
+	MockCreateComment              func(comment models.Comment) error
+	MockGetComment                 func(commentID string) (*models.Comment, error)
+	MockGetCommentsByShareToken    func(shareToken string) ([]models.Comment, error)
+	MockGetCommentsByStoryChapter  func(storyID, chapterID string) ([]models.Comment, error)
+	MockResolveComment             func(commentID string) error
+	MockDeleteComment              func(commentID string) error
 }
 
 var _ DaoInterface = (*MockDAO)(nil)
@@ -453,6 +487,200 @@ func (m *MockDAO) WasStoryDeleted(ctx context.Context, email, storyID string) (b
 		return m.MockWasStoryDeleted(email, storyID)
 	}
 	return m.DAO.WasStoryDeleted(ctx, email, storyID)
+}
+
+// Email/Password Auth mock implementations
+
+func (m *MockDAO) CreateEmailUser(ctx context.Context, email, firstName, lastName, passwordHash, verificationToken string, tokenExpires int64) (*models.UserInfo, error) {
+	if m.MockCreateEmailUser != nil {
+		return m.MockCreateEmailUser(email, firstName, lastName, passwordHash, verificationToken, tokenExpires)
+	}
+	return &models.UserInfo{Email: email, FirstName: firstName, LastName: lastName, AuthType: "email"}, nil
+}
+
+func (m *MockDAO) SetEmailVerified(ctx context.Context, email string) error {
+	if m.MockSetEmailVerified != nil {
+		return m.MockSetEmailVerified(email)
+	}
+	return nil
+}
+
+func (m *MockDAO) SetVerificationToken(ctx context.Context, email, token string, expires int64) error {
+	if m.MockSetVerificationToken != nil {
+		return m.MockSetVerificationToken(email, token, expires)
+	}
+	return nil
+}
+
+func (m *MockDAO) SetResetToken(ctx context.Context, email, token string, expires int64) error {
+	if m.MockSetResetToken != nil {
+		return m.MockSetResetToken(email, token, expires)
+	}
+	return nil
+}
+
+func (m *MockDAO) UpdatePassword(ctx context.Context, email, passwordHash string) error {
+	if m.MockUpdatePassword != nil {
+		return m.MockUpdatePassword(email, passwordHash)
+	}
+	return nil
+}
+
+func (m *MockDAO) ClearResetToken(ctx context.Context, email string) error {
+	if m.MockClearResetToken != nil {
+		return m.MockClearResetToken(email)
+	}
+	return nil
+}
+
+func (m *MockDAO) LinkOAuthAccount(ctx context.Context, email, authType string) error {
+	if m.MockLinkOAuthAccount != nil {
+		return m.MockLinkOAuthAccount(email, authType)
+	}
+	return nil
+}
+
+func (m *MockDAO) RestoreDataForVerifiedUser(email string) {
+	// no-op for tests
+}
+
+func (m *MockDAO) FindUserByVerificationToken(ctx context.Context, token string) (*models.UserInfo, error) {
+	if m.MockFindUserByVerificationToken != nil {
+		return m.MockFindUserByVerificationToken(token)
+	}
+	return &models.UserInfo{}, nil
+}
+
+func (m *MockDAO) FindUserByResetToken(ctx context.Context, token string) (*models.UserInfo, error) {
+	if m.MockFindUserByResetToken != nil {
+		return m.MockFindUserByResetToken(token)
+	}
+	return &models.UserInfo{}, nil
+}
+
+// Sharing mock implementations
+
+func (m *MockDAO) CreateShareLink(ctx context.Context, link models.ShareLink) error {
+	if m.MockCreateShareLink != nil {
+		return m.MockCreateShareLink(link)
+	}
+	return nil
+}
+
+func (m *MockDAO) GetShareLink(ctx context.Context, token string) (*models.ShareLink, error) {
+	if m.MockGetShareLink != nil {
+		return m.MockGetShareLink(token)
+	}
+	return &models.ShareLink{Token: token}, nil
+}
+
+func (m *MockDAO) GetShareLinksByAuthor(ctx context.Context, email string, storyID string) ([]models.ShareLink, error) {
+	if m.MockGetShareLinksByAuthor != nil {
+		return m.MockGetShareLinksByAuthor(email, storyID)
+	}
+	return []models.ShareLink{}, nil
+}
+
+func (m *MockDAO) GetShareLinksByStory(ctx context.Context, storyID string) ([]models.ShareLink, error) {
+	if m.MockGetShareLinksByStory != nil {
+		return m.MockGetShareLinksByStory(storyID)
+	}
+	return []models.ShareLink{}, nil
+}
+
+func (m *MockDAO) RevokeShareLink(ctx context.Context, token string) error {
+	if m.MockRevokeShareLink != nil {
+		return m.MockRevokeShareLink(token)
+	}
+	return nil
+}
+
+func (m *MockDAO) RestoreShareLink(ctx context.Context, token string) error {
+	if m.MockRestoreShareLink != nil {
+		return m.MockRestoreShareLink(token)
+	}
+	return nil
+}
+
+func (m *MockDAO) DeleteShareLink(ctx context.Context, token string) error {
+	if m.MockDeleteShareLink != nil {
+		return m.MockDeleteShareLink(token)
+	}
+	return nil
+}
+
+// Comment mock implementations
+
+func (m *MockDAO) CreateComment(ctx context.Context, comment models.Comment) error {
+	if m.MockCreateComment != nil {
+		return m.MockCreateComment(comment)
+	}
+	return nil
+}
+
+func (m *MockDAO) GetComment(ctx context.Context, commentID string) (*models.Comment, error) {
+	if m.MockGetComment != nil {
+		return m.MockGetComment(commentID)
+	}
+	return &models.Comment{CommentID: commentID}, nil
+}
+
+func (m *MockDAO) GetCommentsByShareToken(ctx context.Context, shareToken string) ([]models.Comment, error) {
+	if m.MockGetCommentsByShareToken != nil {
+		return m.MockGetCommentsByShareToken(shareToken)
+	}
+	return []models.Comment{}, nil
+}
+
+func (m *MockDAO) GetCommentsByStoryChapter(ctx context.Context, storyID, chapterID string) ([]models.Comment, error) {
+	if m.MockGetCommentsByStoryChapter != nil {
+		return m.MockGetCommentsByStoryChapter(storyID, chapterID)
+	}
+	return []models.Comment{}, nil
+}
+
+func (m *MockDAO) ResolveComment(ctx context.Context, commentID string) error {
+	if m.MockResolveComment != nil {
+		return m.MockResolveComment(commentID)
+	}
+	return nil
+}
+
+func (m *MockDAO) DeleteComment(ctx context.Context, commentID string) error {
+	if m.MockDeleteComment != nil {
+		return m.MockDeleteComment(commentID)
+	}
+	return nil
+}
+
+// Alert mock implementations
+
+func (m *MockDAO) CreateAlert(ctx context.Context, alert models.Alert) error {
+	if m.MockCreateAlert != nil {
+		return m.MockCreateAlert(alert)
+	}
+	return nil
+}
+
+func (m *MockDAO) GetAlertsForUser(ctx context.Context, email string) ([]models.Alert, error) {
+	if m.MockGetAlertsForUser != nil {
+		return m.MockGetAlertsForUser(email)
+	}
+	return []models.Alert{}, nil
+}
+
+func (m *MockDAO) GetAlertReadsByUser(ctx context.Context, email string) ([]models.AlertRead, error) {
+	if m.MockGetAlertReadsByUser != nil {
+		return m.MockGetAlertReadsByUser(email)
+	}
+	return []models.AlertRead{}, nil
+}
+
+func (m *MockDAO) MarkAlertRead(ctx context.Context, email, alertID string) error {
+	if m.MockMarkAlertRead != nil {
+		return m.MockMarkAlertRead(email, alertID)
+	}
+	return nil
 }
 
 func NewMockDAO() *MockDAO {

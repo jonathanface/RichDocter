@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -109,7 +110,7 @@ func verifyMobileToken(tokenString string) (*models.UserInfo, error) {
 func New(options OauthOptions) {
 	gothic.Store = sessions.Store
 	goth.UseProviders(
-		google.New(options.GoogleId, options.GoogleSecret, options.GoogleUrl),
+		google.New(options.GoogleId, options.GoogleSecret, options.GoogleUrl, "email", "profile"),
 		amazon.New(options.AmazonId, options.AmazonSecret, options.AmazonUrl),
 	)
 }
@@ -121,25 +122,32 @@ func CallbackHandler(options OauthOptions) http.HandlerFunc {
 }
 
 func determineFirstName(info goth.User) string {
-	name := info.FirstName
-	if name == "" {
-		name = info.NickName
+	if info.FirstName != "" {
+		return info.FirstName
 	}
-	if name == "" {
-		name = "Unknown"
+	// Amazon only provides full Name — split it
+	if info.Name != "" {
+		parts := strings.SplitN(info.Name, " ", 2)
+		return parts[0]
 	}
-	return name
+	if info.NickName != "" {
+		return info.NickName
+	}
+	return "Unknown"
 }
 
 func determineLastName(info goth.User) string {
-	name := info.LastName
-	if name == "" {
-		name = info.Name
+	if info.LastName != "" {
+		return info.LastName
 	}
-	if name == "" {
-		name = "Stranger"
+	// Amazon only provides full Name — split it
+	if info.Name != "" {
+		parts := strings.SplitN(info.Name, " ", 2)
+		if len(parts) > 1 {
+			return parts[1]
+		}
 	}
-	return name
+	return "Stranger"
 }
 
 // safeMobileRedirect validates mobile deep link URLs to prevent open redirect attacks.
@@ -324,12 +332,27 @@ func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOp
 		}
 	}
 
-	// Update user's name information from OAuth provider
+	// Check if this is an email/password account trying to log in via OAuth
+	if userDetails != nil && userDetails.AuthType == "email" && !isNewUser {
+		logger.Info("OAuth login attempted for email account, prompting to link",
+			"email", info.Email,
+			"provider", provider,
+			"remoteAddr", r.RemoteAddr)
+		redirectURL := fmt.Sprintf("%s/link-account?email=%s&provider=%s",
+			options.FrontEndURL,
+			url.QueryEscape(info.Email),
+			url.QueryEscape(provider))
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+
+	// Update user's name and auth_type from OAuth provider
 	if info.FirstName != "" || info.LastName != "" {
 		updateInfo := models.UserInfo{
 			Email:      info.Email,
 			FirstName:  info.FirstName,
 			LastName:   info.LastName,
+			AuthType:   info.AuthType,
 			Subscriber: userDetails.Subscriber,
 		}
 		if err := dao.UpdateUser(r.Context(), updateInfo); err != nil {
@@ -443,16 +466,67 @@ func callbackWithOptions(w http.ResponseWriter, r *http.Request, options OauthOp
 				return
 			}
 		}
-		// Append UX query flags and return immediately after redirect
+		// Create system alerts for subscription status changes
 		if updated.NotifyExpired {
-			logger.Info("User subscription expired", "email", info.Email, "remoteAddr", r.RemoteAddr)
-			http.Redirect(w, r, next+"?expired=true", http.StatusTemporaryRedirect)
-			return
+			logger.Info("User subscription expired, creating alert", "email", info.Email, "remoteAddr", r.RemoteAddr)
+			go func() {
+				alert := models.Alert{
+					ID:          "sub-expired-" + info.Email,
+					Subject:     "Subscription Expired",
+					Message:     "Your subscription has expired. Renew to regain access to premium features.",
+					Link:        "/subscribe",
+					AlertType:   models.AlertTypePersonal,
+					TargetEmail: info.Email,
+					CreatedAt:   time.Now().Unix(),
+					CreatedBy:   "system",
+				}
+				if aErr := dao.CreateAlert(r.Context(), alert); aErr != nil {
+					logger.Error("Failed to create subscription expired alert", "error", aErr, "email", info.Email)
+				}
+			}()
 		}
 		if updated.NotifyRestored {
-			logger.Info("User subscription restored", "email", info.Email, "remoteAddr", r.RemoteAddr)
-			http.Redirect(w, r, next+"?restored=true", http.StatusTemporaryRedirect)
-			return
+			logger.Info("User subscription restored, creating alert", "email", info.Email, "remoteAddr", r.RemoteAddr)
+			go func() {
+				alert := models.Alert{
+					ID:          "sub-restored-" + info.Email + "-" + strconv.FormatInt(time.Now().Unix(), 10),
+					Subject:     "Subscription Restored",
+					Message:     "Your subscription is active again. Your stories are being restored and will be available shortly.",
+					Link:        "/stories",
+					AlertType:   models.AlertTypePersonal,
+					TargetEmail: info.Email,
+					CreatedAt:   time.Now().Unix(),
+					CreatedBy:   "system",
+				}
+				if aErr := dao.CreateAlert(r.Context(), alert); aErr != nil {
+					logger.Error("Failed to create subscription restored alert", "error", aErr, "email", info.Email)
+				}
+			}()
+		}
+		// Proactive: warn if subscription expires within 7 days
+		if updated.Subscriber {
+			sub, subErr := dao.GetSubscription(r.Context(), info.Email)
+			if subErr == nil && !sub.CurrentSubscriptionEnd.IsZero() {
+				daysLeft := int(time.Until(sub.CurrentSubscriptionEnd).Hours() / 24)
+				if daysLeft >= 0 && daysLeft <= 7 {
+					go func() {
+						// Dedup: use a fixed ID so we don't spam on every login
+						alert := models.Alert{
+							ID:          "sub-expiring-" + info.Email,
+							Subject:     "Subscription Expiring Soon",
+							Message:     fmt.Sprintf("Your subscription expires in %d day%s. Renew to keep access to premium features.", daysLeft, func() string { if daysLeft != 1 { return "s" } ; return "" }()),
+							Link:        "/account/subscription",
+							AlertType:   models.AlertTypePersonal,
+							TargetEmail: info.Email,
+							CreatedAt:   time.Now().Unix(),
+							CreatedBy:   "system",
+						}
+						if aErr := dao.CreateAlert(r.Context(), alert); aErr != nil {
+							logger.Error("Failed to create subscription expiring alert", "error", aErr, "email", info.Email)
+						}
+					}()
+				}
+			}
 		}
 	}
 

@@ -70,11 +70,12 @@ type SimplifiedAssociation struct {
 }
 
 type Chapter struct {
-	ID        string `json:"id" dynamodbav:"chapter_id"`
-	StoryID   string `json:"story_id" dynamodbav:"story_id"`
-	Place     int    `json:"place" dynamodbav:"chapter_num"`
-	Title     string `json:"title" dynamodbav:"title"`
-	BackupARN string `dynamodbav:"bup_arn"`
+	ID           string `json:"id" dynamodbav:"chapter_id"`
+	StoryID      string `json:"story_id" dynamodbav:"story_id"`
+	Place        int    `json:"place" dynamodbav:"chapter_num"`
+	Title        string `json:"title" dynamodbav:"title"`
+	BackupARN    string `json:"-" dynamodbav:"bup_arn"`
+	CommentCount int    `json:"comment_count,omitempty" dynamodbav:"-"`
 }
 
 type ChapterWithContents struct {
@@ -120,17 +121,44 @@ type Series struct {
 }
 
 type UserInfo struct {
-	Email          string `json:"email" dynamodbav:"email"`
-	FirstName      string `json:"first_name" dynamodbav:"first_name"`
-	LastName       string `json:"last_name" dynamodbav:"last_name"`
-	Admin          bool   `json:"admin" dynamodbav:"admin"`
-	AuthType       string `json:"auth_type"`
-	Subscriber     bool   `json:"subscriber" dynamodbav:"subscriber"`
-	NotifyExpired  bool   `json:"notify_expired,omitempty"`
-	NotifyRestored bool   `json:"notify_restored,omitempty"`
-	DeletedAt      string `json:"deleted_at,omitempty" dynamodbav:"deleted_at"`
-	NewUser        bool   `json:"showWelcome,omitempty"`        // Transient flag for brand new users (not stored in DB) - mapped to showWelcome in frontend
-	ReturningUser  bool   `json:"isReturningUser,omitempty"`   // Transient flag for returning deleted users (not stored in DB)
+	Email                    string `json:"email" dynamodbav:"email"`
+	FirstName                string `json:"first_name" dynamodbav:"first_name"`
+	LastName                 string `json:"last_name" dynamodbav:"last_name"`
+	Admin                    bool   `json:"admin" dynamodbav:"admin"`
+	AuthType                 string `json:"auth_type" dynamodbav:"auth_type"`
+	Subscriber               bool   `json:"subscriber" dynamodbav:"subscriber"`
+	PasswordHash             string `json:"-" dynamodbav:"password_hash"`
+	EmailVerified            bool   `json:"email_verified,omitempty" dynamodbav:"email_verified"`
+	VerificationToken        string `json:"-" dynamodbav:"verification_token"`
+	VerificationTokenExpires int64  `json:"-" dynamodbav:"verification_token_expires"`
+	ResetToken               string `json:"-" dynamodbav:"reset_token"`
+	ResetTokenExpires        int64  `json:"-" dynamodbav:"reset_token_expires"`
+	NotifyExpired            bool   `json:"notify_expired,omitempty"`
+	NotifyRestored           bool   `json:"notify_restored,omitempty"`
+	DeletedAt                string `json:"deleted_at,omitempty" dynamodbav:"deleted_at"`
+	NewUser                  bool   `json:"showWelcome,omitempty"`      // Transient flag for brand new users (not stored in DB)
+	ReturningUser            bool   `json:"isReturningUser,omitempty"` // Transient flag for returning deleted users (not stored in DB)
+}
+
+type EmailSignupRequest struct {
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+}
+
+type EmailLoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type PasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
+type PasswordResetConfirm struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
 }
 
 // AdminStoryInfo represents a story with its optional series for the admin area
@@ -225,4 +253,101 @@ type OutlineResponse struct {
 	Sections   []OutlineSection `json:"sections"`
 	Unassigned []string         `json:"unassigned"`
 	Backstory  string           `json:"backstory"`
+}
+
+type ShareLink struct {
+	Token           string `json:"token" dynamodbav:"token"`
+	StoryID         string `json:"story_id" dynamodbav:"story_id"`
+	ChapterID       string `json:"chapter_id,omitempty" dynamodbav:"chapter_id"`
+	AuthorEmail     string `json:"author_email" dynamodbav:"author_email"`
+	ReaderEmail     string `json:"reader_email" dynamodbav:"reader_email"`
+	ReaderFirstName string `json:"reader_first_name" dynamodbav:"reader_first_name"`
+	ReaderLastName  string `json:"reader_last_name" dynamodbav:"reader_last_name"`
+	CreatedAt       int64  `json:"created_at" dynamodbav:"created_at"`
+	ExpiresAt       int64  `json:"expires_at" dynamodbav:"expires_at"`
+	Revoked         bool   `json:"revoked" dynamodbav:"revoked"`
+	CommentsEnabled bool   `json:"comments_enabled" dynamodbav:"comments_enabled"`
+	Label           string `json:"label,omitempty" dynamodbav:"label"`
+}
+
+type Comment struct {
+	CommentID          string `json:"comment_id" dynamodbav:"comment_id"`
+	ShareToken         string `json:"share_token" dynamodbav:"share_token"`
+	StoryID            string `json:"story_id" dynamodbav:"story_id"`
+	ChapterID          string `json:"chapter_id" dynamodbav:"chapter_id"`
+	BlockKeyID         string `json:"block_key_id" dynamodbav:"block_key_id"`
+	AnchorOffset       int    `json:"anchor_offset" dynamodbav:"anchor_offset"`
+	FocusOffset        int    `json:"focus_offset" dynamodbav:"focus_offset"`
+	AnchorTextSnapshot string `json:"anchor_text_snapshot" dynamodbav:"anchor_text_snapshot"`
+	ReaderEmail        string `json:"reader_email" dynamodbav:"reader_email"`
+	ReaderFirstName    string `json:"reader_first_name" dynamodbav:"reader_first_name"`
+	ReaderLastName     string `json:"reader_last_name" dynamodbav:"reader_last_name"`
+	Body               string `json:"body" dynamodbav:"body"`
+	CreatedAt          int64  `json:"created_at" dynamodbav:"created_at"`
+	Resolved           bool   `json:"resolved" dynamodbav:"resolved"`
+	ResolvedAt         int64  `json:"resolved_at,omitempty" dynamodbav:"resolved_at"`
+}
+
+type CreateShareLinkRequest struct {
+	ChapterID       string `json:"chapter_id,omitempty"`
+	ReaderEmail     string `json:"reader_email"`
+	ReaderFirstName string `json:"reader_first_name"`
+	ReaderLastName  string `json:"reader_last_name"`
+	ExpiresAt       int64  `json:"expires_at"`
+	CommentsEnabled bool   `json:"comments_enabled"`
+	Label           string `json:"label,omitempty"`
+}
+
+type CreateCommentRequest struct {
+	ChapterID          string `json:"chapter_id"`
+	BlockKeyID         string `json:"block_key_id"`
+	AnchorOffset       int    `json:"anchor_offset"`
+	FocusOffset        int    `json:"focus_offset"`
+	AnchorTextSnapshot string `json:"anchor_text_snapshot"`
+	Body               string `json:"body"`
+}
+
+// Alerts / Notifications
+
+type AlertType string
+
+const (
+	AlertTypeAnnouncement AlertType = "announcement"
+	AlertTypePersonal     AlertType = "personal"
+)
+
+type Alert struct {
+	ID          string    `json:"alert_id" dynamodbav:"alert_id"`
+	Subject     string    `json:"subject" dynamodbav:"subject"`
+	Message     string    `json:"message" dynamodbav:"message"`
+	Link        string    `json:"link,omitempty" dynamodbav:"link"`
+	AlertType   AlertType `json:"alert_type" dynamodbav:"alert_type"`
+	TargetEmail string    `json:"target_email" dynamodbav:"target_email"`
+	CreatedAt   int64     `json:"created_at" dynamodbav:"created_at"`
+	CreatedBy   string    `json:"created_by" dynamodbav:"created_by"`
+}
+
+type AlertRead struct {
+	Email   string `json:"email" dynamodbav:"email"`
+	AlertID string `json:"alert_id" dynamodbav:"alert_id"`
+	ReadAt  int64  `json:"read_at" dynamodbav:"read_at"`
+}
+
+type UserAlert struct {
+	Alert
+	Read   bool  `json:"read"`
+	ReadAt int64 `json:"read_at,omitempty"`
+}
+
+type CreateAlertRequest struct {
+	Subject     string    `json:"subject"`
+	Message     string    `json:"message"`
+	Link        string    `json:"link,omitempty"`
+	AlertType   AlertType `json:"alert_type"`
+	TargetEmail string    `json:"target_email,omitempty"`
+}
+
+type AlertsResponse struct {
+	Alerts      []UserAlert `json:"alerts"`
+	UnreadCount int         `json:"unread_count"`
 }

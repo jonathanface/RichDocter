@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useLocation } from "react-router-dom";
 import { useLoader } from "../../hooks/useLoader";
 import { useSelections } from "../../hooks/useSelections";
 import { useToaster } from "../../hooks/useToaster";
@@ -9,9 +10,13 @@ import { EditableText } from "../EditableText";
 import { ThemeToggle } from "../ThemeToggle";
 
 import { api } from "../../api";
+import { NotificationsBell } from "../NotificationsBell";
 import styles from "./headermenu.module.css";
 
 export const HeaderMenu = () => {
+  const location = useLocation();
+  const isSharedReader = location.pathname.startsWith("/shared/");
+
   const {
     story,
     series,
@@ -136,25 +141,28 @@ export const HeaderMenu = () => {
           />
           <span className={styles.logoText}>docter.io</span>
         </a>
-        <span className={styles.storyInfo}>
-          <img alt={story?.title} src={story?.image_url} />
-          <div className={styles.storyData}>
-            <EditableText
-              textValue={story?.title ? story.title : ""}
-              onTextChange={onStoryTitleEdit}
-            />
-            <div className={styles.seriesInfo}>
+        {!isSharedReader && (
+          <span className={styles.storyInfo}>
+            <img alt={story?.title} src={story?.image_url} />
+            <div className={styles.storyData}>
               <EditableText
-                textValue={series?.series_title ? series.series_title : ""}
-                onTextChange={onSeriesTitleEdit}
+                textValue={story?.title ? story.title : ""}
+                onTextChange={onStoryTitleEdit}
               />
+              <div className={styles.seriesInfo}>
+                <EditableText
+                  textValue={series?.series_title ? series.series_title : ""}
+                  onTextChange={onSeriesTitleEdit}
+                />
+              </div>
             </div>
-          </div>
-        </span>
+          </span>
+        )}
       </span>
       <span className={styles.rightPane}>
+        {!isSharedReader && <NotificationsBell />}
         <ThemeToggle />
-        <UserMenu />
+        {!isSharedReader && <UserMenu />}
       </span>
     </header>
   );

@@ -67,6 +67,41 @@ type DaoInterface interface {
 	DeleteSeries(ctx context.Context, email string, series models.Series) error
 	DeleteUser(ctx context.Context, email string) error
 
+	// Sharing
+	CreateShareLink(ctx context.Context, link models.ShareLink) error
+	GetShareLink(ctx context.Context, token string) (*models.ShareLink, error)
+	GetShareLinksByAuthor(ctx context.Context, email string, storyID string) ([]models.ShareLink, error)
+	GetShareLinksByStory(ctx context.Context, storyID string) ([]models.ShareLink, error)
+	RevokeShareLink(ctx context.Context, token string) error
+	RestoreShareLink(ctx context.Context, token string) error
+	DeleteShareLink(ctx context.Context, token string) error
+
+	// Comments
+	CreateComment(ctx context.Context, comment models.Comment) error
+	GetComment(ctx context.Context, commentID string) (*models.Comment, error)
+	GetCommentsByShareToken(ctx context.Context, shareToken string) ([]models.Comment, error)
+	GetCommentsByStoryChapter(ctx context.Context, storyID, chapterID string) ([]models.Comment, error)
+	ResolveComment(ctx context.Context, commentID string) error
+	DeleteComment(ctx context.Context, commentID string) error
+
+	// Email/Password Auth
+	CreateEmailUser(ctx context.Context, email, firstName, lastName, passwordHash, verificationToken string, tokenExpires int64) (*models.UserInfo, error)
+	SetEmailVerified(ctx context.Context, email string) error
+	SetVerificationToken(ctx context.Context, email, token string, expires int64) error
+	SetResetToken(ctx context.Context, email, token string, expires int64) error
+	UpdatePassword(ctx context.Context, email, passwordHash string) error
+	ClearResetToken(ctx context.Context, email string) error
+	LinkOAuthAccount(ctx context.Context, email, authType string) error
+	FindUserByVerificationToken(ctx context.Context, token string) (*models.UserInfo, error)
+	FindUserByResetToken(ctx context.Context, token string) (*models.UserInfo, error)
+	RestoreDataForVerifiedUser(email string)
+
+	// Alerts
+	CreateAlert(ctx context.Context, alert models.Alert) error
+	GetAlertsForUser(ctx context.Context, email string) ([]models.Alert, error)
+	GetAlertReadsByUser(ctx context.Context, email string) ([]models.AlertRead, error)
+	MarkAlertRead(ctx context.Context, email string, alertID string) error
+
 	// HELPERS
 	WasStoryDeleted(ctx context.Context, email string, storyID string) (bool, error)
 	IsStoryInASeries(ctx context.Context, email string, storyID string) (string, error)

@@ -43,10 +43,18 @@ func setupRouter(mode models.AppMode, dao *daos.DAO, authOptions auth.OauthOptio
 	}
 	authRtr := rtr.PathPrefix(authPath).Subrouter()
 	authRtr.Use(looseMiddleware(dao))
+	authLimiter := newAuthRateLimiter()
+	authRtr.Use(authRateLimitMiddleware(authLimiter))
 	// DEV ONLY!!
 	//rtr.HandleFunc("/auth/logout", auth.DeleteToken).Methods("GET", "OPTIONS")
 	authRtr.HandleFunc("/logout", auth.Logout).Methods("DELETE", "OPTIONS")
 	authRtr.HandleFunc("/session", auth.MobileSessionHandler()).Methods("POST", "OPTIONS")
+	authRtr.HandleFunc("/email/signup", auth.EmailSignupHandler(authOptions)).Methods("POST", "OPTIONS")
+	authRtr.HandleFunc("/email/login", auth.EmailLoginHandler(authOptions)).Methods("POST", "OPTIONS")
+	authRtr.HandleFunc("/email/verify", auth.EmailVerifyHandler(authOptions)).Methods("GET", "OPTIONS")
+	authRtr.HandleFunc("/email/request-reset", auth.PasswordResetRequestHandler(authOptions)).Methods("POST", "OPTIONS")
+	authRtr.HandleFunc("/email/reset-password", auth.PasswordResetHandler()).Methods("POST", "OPTIONS")
+	authRtr.HandleFunc("/email/link-oauth", auth.LinkOAuthAccountHandler()).Methods("POST", "OPTIONS")
 	authRtr.HandleFunc("/{provider}", auth.LoginHandler(authOptions)).Methods("GET", "PUT", "OPTIONS")
 	authRtr.HandleFunc("/{provider}/callback", auth.CallbackHandler(authOptions)).Methods("POST", "GET", "OPTIONS")
 
@@ -76,7 +84,12 @@ func setupRouter(mode models.AppMode, dao *daos.DAO, authOptions auth.OauthOptio
 	apiRtr.HandleFunc("/series/{series}/volumes", api.AllSeriesVolumesEndPoint).Methods("GET", "OPTIONS")
 	apiRtr.HandleFunc("/stories/{storyID}/chapters/{chapterID}", api.ChapterDetailsEndpoint).Methods("GET", "OPTIONS")
 	apiRtr.HandleFunc("/stories/{storyID}/chapters/{chapterID}/status", api.ChapterTableStatusEndpoint).Methods("GET", "OPTIONS")
+	apiRtr.HandleFunc("/alerts", api.GetUserAlertsEndpoint).Methods("GET", "OPTIONS")
+	apiRtr.HandleFunc("/alerts/unread-count", api.GetUnreadAlertCountEndpoint).Methods("GET", "OPTIONS")
+	apiRtr.HandleFunc("/alerts/{alertID}/read", api.MarkAlertReadEndpoint).Methods("PUT", "OPTIONS")
+	apiRtr.HandleFunc("/admin/alerts", api.AdminCreateAlertEndpoint).Methods("POST", "OPTIONS")
 	apiRtr.HandleFunc("/admin/users", api.AdminGetAllUsersEndpoint).Methods("GET", "OPTIONS")
+	apiRtr.HandleFunc("/admin/users/{email}", api.AdminDeleteUserEndpoint).Methods("DELETE", "OPTIONS")
 
 	// POSTs
 	apiRtr.HandleFunc("/stories", api.CreateStoryEndpoint).Methods("POST", "OPTIONS")
@@ -100,6 +113,16 @@ func setupRouter(mode models.AppMode, dao *daos.DAO, authOptions auth.OauthOptio
 	apiRtr.HandleFunc("/user", api.UpdateUserEndpoint).Methods("PUT", "OPTIONS")
 	apiRtr.HandleFunc("/stories/{storyID}/outline", api.UpdateOutlineEndpoint).Methods("PUT", "OPTIONS")
 
+	// Sharing (author-side)
+	apiRtr.HandleFunc("/stories/{storyID}/share", api.CreateShareLinkEndpoint).Methods("POST", "OPTIONS")
+	apiRtr.HandleFunc("/stories/{storyID}/share-links", api.GetShareLinksEndpoint).Methods("GET", "OPTIONS")
+	apiRtr.HandleFunc("/stories/{storyID}/comments", api.GetAuthorCommentsEndpoint).Methods("GET", "OPTIONS")
+	apiRtr.HandleFunc("/share-links/{token}/revoke", api.RevokeShareLinkEndpoint).Methods("PUT", "OPTIONS")
+	apiRtr.HandleFunc("/share-links/{token}/restore", api.RestoreShareLinkEndpoint).Methods("PUT", "OPTIONS")
+	apiRtr.HandleFunc("/share-links/{token}", api.DeleteShareLinkEndpoint).Methods("DELETE", "OPTIONS")
+	apiRtr.HandleFunc("/comments/{commentID}/resolve", api.ResolveCommentEndpoint).Methods("PUT", "OPTIONS")
+	apiRtr.HandleFunc("/comments/{commentID}", api.DeleteCommentEndpoint).Methods("DELETE", "OPTIONS")
+
 	// DELETEs
 	apiRtr.HandleFunc("/stories/{storyID}/block", api.DeleteBlocksFromStoryEndpoint).Methods("DELETE", "OPTIONS")
 	apiRtr.HandleFunc("/stories/{story}/associations", api.DeleteAssociationsEndpoint).Methods("DELETE", "OPTIONS")
@@ -107,6 +130,15 @@ func setupRouter(mode models.AppMode, dao *daos.DAO, authOptions auth.OauthOptio
 	apiRtr.HandleFunc("/stories/{story}", api.DeleteStoryEndpoint).Methods("DELETE", "OPTIONS")
 	apiRtr.HandleFunc("/series/{seriesID}", api.DeleteSeriesEndpoint).Methods("DELETE", "OPTIONS")
 	apiRtr.HandleFunc("/user", api.DeleteUserEndpoint).Methods("DELETE", "OPTIONS")
+
+	// Shared reader routes (public, authenticated via share token)
+	sharedRtr := rtr.PathPrefix("/api/v1/shared/{token}").Subrouter()
+	sharedRtr.Use(sharedMiddleware(dao))
+	sharedRtr.HandleFunc("", api.GetSharedStoryEndpoint).Methods("GET", "OPTIONS")
+	sharedRtr.HandleFunc("/content", api.GetSharedContentEndpoint).Methods("GET", "OPTIONS")
+	sharedRtr.HandleFunc("/comments", api.GetSharedCommentsEndpoint).Methods("GET", "OPTIONS")
+	sharedRtr.HandleFunc("/comments", api.CreateCommentEndpoint).Methods("POST", "OPTIONS")
+	sharedRtr.HandleFunc("/comments/{commentID}", api.DeleteOwnCommentEndpoint).Methods("DELETE", "OPTIONS")
 
 	fileServer := http.FileServer(http.Dir(staticFilesDir))
 	rtr.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

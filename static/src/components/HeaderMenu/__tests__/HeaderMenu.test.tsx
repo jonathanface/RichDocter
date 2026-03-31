@@ -58,12 +58,22 @@ vi.mock("../../../hooks/useLoader", () => ({
   }),
 }));
 
+vi.mock("react-router-dom", () => ({
+  useLocation: () => ({ pathname: "/stories" }),
+}));
+
 vi.mock("../ThemeToggle", () => ({
   ThemeToggle: () => <div data-testid="theme-toggle">Theme Toggle</div>,
 }));
 
 vi.mock("../../UserMenu", () => ({
   UserMenu: () => <div data-testid="user-menu">User Menu</div>,
+}));
+
+vi.mock("../../NotificationsBell", () => ({
+  NotificationsBell: () => (
+    <div data-testid="notifications-bell">Notifications</div>
+  ),
 }));
 
 vi.mock("../../../api", () => ({
@@ -141,7 +151,7 @@ describe("HeaderMenu", () => {
       vi.mocked(api.api.put).mockResolvedValue({
         status: 200,
         data: {},
-      } as any);
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       render(<HeaderMenu />);
 
@@ -271,7 +281,7 @@ describe("HeaderMenu", () => {
       vi.mocked(api.api.put).mockResolvedValue({
         status: 200,
         data: {},
-      } as any);
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       render(<HeaderMenu />);
 
@@ -410,7 +420,7 @@ describe("HeaderMenu", () => {
       vi.mocked(api.api.put).mockResolvedValue({
         status: 200,
         data: {},
-      } as any);
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       render(<HeaderMenu />);
 
@@ -435,7 +445,7 @@ describe("HeaderMenu", () => {
       vi.mocked(api.api.put).mockResolvedValue({
         status: 200,
         data: {},
-      } as any);
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       render(<HeaderMenu />);
 

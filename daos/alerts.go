@@ -1,8 +1,8 @@
 package daos
 
 import (
-	"RichDocter/logger"
-	"RichDocter/models"
+	"Threadr/logger"
+	"Threadr/models"
 	"context"
 	"fmt"
 	"sort"
@@ -161,8 +161,8 @@ func (d *DAO) MarkAlertRead(ctx context.Context, email string, alertID string) e
 func (d *DAO) createWelcomeAlert(ctx context.Context, email string) {
 	alert := models.Alert{
 		ID:          fmt.Sprintf("welcome-%s", email),
-		Subject:     "Welcome to Docter!",
-		Message:     "We're excited to have you. Start by creating your first story and linking your characters, places, and events directly into your manuscript.",
+		Subject:     "Welcome to Threadr!",
+		Message:     "We're excited to have you. Start by creating your first story and linking your characters, places, and events directly into your manuscript. If you need any help, reach out to support@threadr.net.",
 		Link:        "/stories/new",
 		AlertType:   models.AlertTypePersonal,
 		TargetEmail: email,
@@ -193,8 +193,8 @@ func (d *DAO) createSubscribeNowAlert(ctx context.Context, email string) {
 func (d *DAO) createWelcomeBackAlert(ctx context.Context, email string) {
 	alert := models.Alert{
 		ID:          fmt.Sprintf("welcome-back-%s-%d", email, time.Now().Unix()),
-		Subject:     "Welcome back to Docter!",
-		Message:     "Great to see you again. Your stories have been restored and are ready for you.",
+		Subject:     "Welcome back to Threadr!",
+		Message:     "Great to see you again. Your stories have been restored and are ready for you. If you need any help, reach out to support@threadr.net.",
 		Link:        "/stories",
 		AlertType:   models.AlertTypePersonal,
 		TargetEmail: email,

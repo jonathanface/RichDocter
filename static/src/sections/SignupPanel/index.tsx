@@ -1,10 +1,14 @@
 import axios from "axios";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import styles from "../LoginPanel/loginpanel.module.css";
+import { usePostHog } from "@posthog/react";
 
 export const SignupPanel = () => {
   const navigate = useNavigate();
+  const posthog = usePostHog();
+  const [searchParams] = useSearchParams();
+  const fromDemo = searchParams.get("from") === "demo";
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -44,6 +48,7 @@ export const SignupPanel = () => {
         first_name: firstName,
         last_name: lastName,
       });
+      posthog?.capture("user_signed_up", { auth_type: "email" });
       setSuccess(res.data.message || "Account created! Check your email to verify.");
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.data) {
@@ -71,6 +76,15 @@ export const SignupPanel = () => {
         &times;
       </button>
       <h1>Create Account</h1>
+
+      {fromDemo && !success && (
+        <p
+          className={styles.successMessage}
+          style={{ marginBottom: "1rem" }}
+        >
+          Sign up to keep the draft you started — we'll move it into your account.
+        </p>
+      )}
 
       {success ? (
         <div>

@@ -74,17 +74,13 @@ func applyOAuthSubscriptionUpdate(
 	logger.Debug("Subscription status checked",
 		"email", userDetails.Email, "subscriber", updated.Subscriber, "remoteAddr", remoteAddr)
 
+	needsPersist := false
 	if userDetails.Subscriber != updated.Subscriber {
 		logger.Info("Subscription status changed",
 			"email", userDetails.Email,
 			"previousStatus", userDetails.Subscriber,
 			"newStatus", updated.Subscriber, "remoteAddr", remoteAddr)
-		if err = dao.UpdateUser(ctx, *updated); err != nil {
-			logger.Error("Failed to update user subscription status",
-				"error", err, "email", userDetails.Email, "remoteAddr", remoteAddr)
-			api.RespondWithError(w, http.StatusInternalServerError, "An internal error occurred")
-			return false
-		}
+		needsPersist = true
 	}
 	if updated.NotifyExpired {
 		logger.Info("User subscription expired, creating alert",
@@ -92,10 +88,12 @@ func applyOAuthSubscriptionUpdate(
 		sendSubscriptionAlert(ctx, dao, models.Alert{
 			ID:          "sub-expired-" + userDetails.Email,
 			Subject:     "Subscription Expired",
-			Message:     "Your subscription has expired. Renew to regain access to premium features.",
+			Message:     "Your subscription has expired. Your stories are safe, but exporting, sharing with readers, and adding more than 10 associations per story are paused until you resubscribe.",
 			Link:        "/subscribe",
 			TargetEmail: userDetails.Email,
 		})
+		updated.NotifyExpired = false
+		needsPersist = true
 	}
 	if updated.NotifyRestored {
 		logger.Info("User subscription restored, creating alert",
@@ -103,10 +101,20 @@ func applyOAuthSubscriptionUpdate(
 		sendSubscriptionAlert(ctx, dao, models.Alert{
 			ID:          "sub-restored-" + userDetails.Email + "-" + strconv.FormatInt(time.Now().Unix(), 10),
 			Subject:     "Subscription Restored",
-			Message:     "Your subscription is active again. Your stories are being restored and will be available shortly.",
+			Message:     "Welcome back! Your subscription is active again — exporting, sharing, and unlimited associations are unlocked.",
 			Link:        "/stories",
 			TargetEmail: userDetails.Email,
 		})
+		updated.NotifyRestored = false
+		needsPersist = true
+	}
+	if needsPersist {
+		if err = dao.UpdateUser(ctx, *updated); err != nil {
+			logger.Error("Failed to update user subscription status",
+				"error", err, "email", userDetails.Email, "remoteAddr", remoteAddr)
+			api.RespondWithError(w, http.StatusInternalServerError, "An internal error occurred")
+			return false
+		}
 	}
 	maybeSendExpiringSoonAlert(ctx, dao, updated, userDetails.Email)
 	return true
